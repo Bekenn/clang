@@ -1471,7 +1471,7 @@ TypeSourceInfo *Sema::SubstType(TypeSourceInfo *T,
                                 const MultiLevelTemplateArgumentList &Args,
                                 SourceLocation Loc,
                                 DeclarationName Entity) {
-  assert(!ActiveTemplateInstantiations.empty() &&
+  assert((!ActiveTemplateInstantiations.empty() || T->getType()->getContainedAutoType()) &&
          "Cannot perform an instantiation without some context on the "
          "instantiation stack");
   
@@ -1487,7 +1487,7 @@ TypeSourceInfo *Sema::SubstType(TypeLoc TL,
                                 const MultiLevelTemplateArgumentList &Args,
                                 SourceLocation Loc,
                                 DeclarationName Entity) {
-  assert(!ActiveTemplateInstantiations.empty() &&
+  assert((!ActiveTemplateInstantiations.empty() || TL.getTypePtr()->getContainedAutoType()) &&
          "Cannot perform an instantiation without some context on the "
          "instantiation stack");
   
@@ -1517,7 +1517,7 @@ TypeSourceInfo *Sema::SubstType(TypeLoc TL,
 QualType Sema::SubstType(QualType T,
                          const MultiLevelTemplateArgumentList &TemplateArgs,
                          SourceLocation Loc, DeclarationName Entity) {
-  assert(!ActiveTemplateInstantiations.empty() &&
+  assert((!ActiveTemplateInstantiations.empty() || T->getContainedAutoType()) &&
          "Cannot perform an instantiation without some context on the "
          "instantiation stack");
 

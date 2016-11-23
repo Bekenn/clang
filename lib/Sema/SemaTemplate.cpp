@@ -5762,10 +5762,16 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
     // template parameter and one of the non-type template parameter types
     // is dependent, then we must wait until template instantiation time
     // to actually compare the arguments.
-    if (Kind == Sema::TPL_TemplateTemplateArgumentMatch &&
-        (OldNTTP->getType()->isDependentType() ||
-         NewNTTP->getType()->isDependentType()))
-      return true;
+    if (Kind == Sema::TPL_TemplateTemplateArgumentMatch) {
+      AutoType *Contained = NewNTTP->getType()->getContainedAutoType();
+      if (Contained) {
+          NewNTTP = cast_or_null<NonTypeTemplateParmDecl>(
+              S.SubstDecl(NewNTTP, NewNTTP->getDeclContext(), { }));
+      }
+      if (OldNTTP->getType()->isDependentType() ||
+          NewNTTP->getType()->isDependentType())
+        return true;
+    }
 
     if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {
       if (Complain) {

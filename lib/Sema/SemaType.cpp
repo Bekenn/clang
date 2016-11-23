@@ -1595,14 +1595,26 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     }
     break;
 
-  case DeclSpec::TST_auto_type:
-    Result = Context.getAutoType(QualType(), AutoTypeKeyword::GNUAutoType, false);
+  case DeclSpec::TST_auto_type: {
+    // If __auto_type appears in the declaration of a template parameter, treat
+    // the parameter as type-dependent.
+    bool IsDependent =
+      S.getLangOpts().CPlusPlus1z &&
+      declarator.getContext() == Declarator::TemplateParamContext;
+    Result = Context.getAutoType(QualType(), AutoTypeKeyword::GNUAutoType, IsDependent);
     break;
+  }
 
-  case DeclSpec::TST_decltype_auto:
+  case DeclSpec::TST_decltype_auto: {
+    // If decltype(auto) appears in the declaration of a template parameter, treat
+    // the parameter as type-dependent.
+    bool IsDependent =
+      S.getLangOpts().CPlusPlus1z &&
+      declarator.getContext() == Declarator::TemplateParamContext;
     Result = Context.getAutoType(QualType(), AutoTypeKeyword::DecltypeAuto,
-                                 /*IsDependent*/ false);
+                                 IsDependent);
     break;
+  }
 
   case DeclSpec::TST_unknown_anytype:
     Result = Context.UnknownAnyTy;
