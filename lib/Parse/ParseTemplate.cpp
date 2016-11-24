@@ -350,7 +350,7 @@ bool Parser::ParseTemplateParameters(unsigned Depth,
     Tok.setKind(tok::greater);
     RAngleLoc = Tok.getLocation();
     Tok.setLocation(Tok.getLocation().getLocWithOffset(1));
-  } else if (!TryConsumeToken(tok::greater, RAngleLoc) && Failed) {
+  } else if (!TryConsumeToken(tok::greater, RAngleLoc) && !Failed) {
     Diag(Tok.getLocation(), diag::err_expected) << tok::greater;
     return true;
   }
@@ -368,6 +368,7 @@ bool Parser::ParseTemplateParameters(unsigned Depth,
 bool
 Parser::ParseTemplateParameterList(unsigned Depth,
                              SmallVectorImpl<Decl*> &TemplateParams) {
+  bool Failed = false;
   while (1) {
     if (Decl *TmpParam
           = ParseTemplateParameter(Depth, TemplateParams.size())) {
@@ -375,6 +376,7 @@ Parser::ParseTemplateParameterList(unsigned Depth,
     } else {
       // If we failed to parse a template parameter, skip until we find
       // a comma or closing brace.
+      Failed = true;
       SkipUntil(tok::comma, tok::greater, tok::greatergreater,
                 StopAtSemi | StopBeforeMatch);
     }
@@ -390,12 +392,14 @@ Parser::ParseTemplateParameterList(unsigned Depth,
       // try to get out of the expression. This error is currently
       // subsumed by whatever goes on in ParseTemplateParameter.
       Diag(Tok.getLocation(), diag::err_expected_comma_greater);
+      Failed = true;
       SkipUntil(tok::comma, tok::greater, tok::greatergreater,
                 StopAtSemi | StopBeforeMatch);
-      return false;
+      if (!TryConsumeToken(tok::comma))
+        break;
     }
   }
-  return true;
+  return Failed;
 }
 
 /// \brief Determine whether the parser is at the start of a template

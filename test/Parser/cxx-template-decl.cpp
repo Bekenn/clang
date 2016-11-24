@@ -11,13 +11,13 @@ template  x;            // expected-error {{C++ requires a type specifier for al
 export template x;      // expected-error {{expected '<' after 'template'}}
 export template<class T> class x0; // expected-warning {{exported templates are unsupported}}
 template < ;            // expected-error {{expected template parameter}} \
-// expected-error{{expected ',' or '>' in template-parameter-list}} \
+// expected-error {{expected ',' or '>' in template-parameter-list}} \
 // expected-warning {{declaration does not declare anything}}
 template <int +> struct x1; // expected-error {{expected ',' or '>' in template-parameter-list}}
 
 // verifies that we only walk to the ',' & still produce errors on the rest of the template parameters
 template <int +, T> struct x2; // expected-error {{expected ',' or '>' in template-parameter-list}} \
-                                expected-error {{expected unqualified-id}}
+                                expected-error {{unknown type name 'T'}}
 template<template<int+>> struct x3; // expected-error {{expected ',' or '>' in template-parameter-list}} \
                                          expected-error {{template template parameter requires 'class' after the parameter list}}
 template <template X> struct Err1; // expected-error {{expected '<' after 'template'}} \
