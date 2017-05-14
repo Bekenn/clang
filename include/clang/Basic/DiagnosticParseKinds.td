@@ -321,7 +321,7 @@ def err_argument_required_after_attribute : Error<
   "argument required after attribute">;
 def err_missing_param : Error<"expected parameter declarator">;
 def err_missing_comma_before_ellipsis : Error<
-  "C requires a comma prior to the ellipsis in a variadic function type">;
+  "comma required prior to the ellipsis in a variadic function type">;
 def err_unexpected_typedef_ident : Error<
   "unexpected type name %0: expected identifier">;
 def warn_cxx98_compat_decltype : Warning<

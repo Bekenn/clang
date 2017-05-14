@@ -5628,6 +5628,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
            D.getContext() == DeclaratorContext::LambdaExprParameterContext ||
            D.getContext() == DeclaratorContext::BlockLiteralContext) &&
           NextToken().is(tok::r_paren) &&
+          !getLangOpts().FunctionParameterPacks &&
           !D.hasGroupingParens() &&
           !Actions.containsUnexpandedParameterPacks(D) &&
           D.getDeclSpec().getTypeSpecType() != TST_auto)) {
@@ -6468,6 +6469,7 @@ void Parser::ParseParameterDeclarationClause(
       // parameter pack declaration.
       if (Tok.is(tok::ellipsis) &&
           (NextToken().isNot(tok::r_paren) ||
+           getLangOpts().FunctionParameterPacks ||
            (!ParmDeclarator.getEllipsisLoc().isValid() &&
             !Actions.isUnexpandedParameterPackPermitted())) &&
           Actions.containsUnexpandedParameterPacks(ParmDeclarator))
@@ -6533,7 +6535,7 @@ void Parser::ParseParameterDeclarationClause(
     }
 
     if (TryConsumeToken(tok::ellipsis, EllipsisLoc)) {
-      if (!getLangOpts().CPlusPlus) {
+      if (!getLangOpts().CPlusPlus || getLangOpts().FunctionParameterPacks) {
         // We have ellipsis without a preceding ',', which is ill-formed
         // in C. Complain and provide the fix.
         Diag(EllipsisLoc, diag::err_missing_comma_before_ellipsis)
