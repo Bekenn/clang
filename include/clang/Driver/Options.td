@@ -785,6 +785,9 @@ def fno_addrsig : Flag<["-"], "fno-addrsig">, Group<f_Group>, Flags<[CoreOption]
   HelpText<"Don't emit an address-significance table">;
 def fblocks : Flag<["-"], "fblocks">, Group<f_Group>, Flags<[CoreOption, CC1Option]>,
   HelpText<"Enable the 'blocks' language feature">;
+def ffunc_parm_packs : Flag<["-"], "ffunc-parm-packs">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable function parameter packs">;
+def fno_func_parm_packs : Flag<["-"], "fno-func-parm-packs">, Group<f_Group>;
 def fbootclasspath_EQ : Joined<["-"], "fbootclasspath=">, Group<f_Group>;
 def fborland_extensions : Flag<["-"], "fborland-extensions">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Accept non-standard constructs supported by the Borland compiler">;

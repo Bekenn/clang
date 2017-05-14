@@ -4673,6 +4673,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (TC.IsEncodeExtendedBlockSignatureDefault())
     CmdArgs.push_back("-fencode-extended-block-signature");
 
+  if (Args.hasFlag(options::OPT_ffunc_parm_packs, options::OPT_fno_func_parm_packs, false))
+    CmdArgs.push_back("-ffunc-parm-packs");
+
   if (Args.hasFlag(options::OPT_fcoroutines_ts, options::OPT_fno_coroutines_ts,
                    false) &&
       types::isCXX(InputType)) {
