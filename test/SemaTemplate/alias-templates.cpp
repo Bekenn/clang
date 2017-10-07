@@ -267,3 +267,8 @@ namespace an_alias_template_is_not_a_class_template {
     int z = Bar(); // expected-error {{use of template template parameter 'Bar' requires template arguments}}
   }
 }
+
+namespace require_template_parameters {
+  template<> using NoParm1 = int; // expected-error {{extraneous 'template<>' in declaration}}
+  template using NoParm2 = int; // expected-error {{explicit instantiation}}
+}

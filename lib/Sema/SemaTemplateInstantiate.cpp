@@ -726,6 +726,7 @@ Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
 namespace {
   class TemplateInstantiator : public TreeTransform<TemplateInstantiator> {
     const MultiLevelTemplateArgumentList &TemplateArgs;
+    Optional<unsigned> PackSize;
     SourceLocation Loc;
     DeclarationName Entity;
 
@@ -734,10 +735,11 @@ namespace {
 
     TemplateInstantiator(Sema &SemaRef,
                          const MultiLevelTemplateArgumentList &TemplateArgs,
+                         Optional<unsigned> PackSize,
                          SourceLocation Loc,
                          DeclarationName Entity)
-      : inherited(SemaRef), TemplateArgs(TemplateArgs), Loc(Loc),
-        Entity(Entity) { }
+      : inherited(SemaRef), TemplateArgs(TemplateArgs), PackSize(PackSize),
+        Loc(Loc), Entity(Entity) { }
 
     /// Determine whether the given type \p T has already been
     /// transformed.
@@ -751,6 +753,9 @@ namespace {
 
     /// Returns the name of the entity being instantiated, if any.
     DeclarationName getBaseEntity() { return Entity; }
+
+    /// Returns the number of elements in a trailing function parameter pack.
+    Optional<unsigned> getHomogeneousPackSize() { return PackSize; }
 
     /// Sets the "base" location and entity when that
     /// information is known based on another transformation.
@@ -1582,7 +1587,7 @@ TypeSourceInfo *Sema::SubstType(TypeSourceInfo *T,
       !T->getType()->isVariablyModifiedType())
     return T;
 
-  TemplateInstantiator Instantiator(*this, Args, Loc, Entity);
+  TemplateInstantiator Instantiator(*this, Args, 0, Loc, Entity);
   return AllowDeducedTST ? Instantiator.TransformTypeWithDeducedTST(T)
                          : Instantiator.TransformType(T);
 }
@@ -1607,7 +1612,7 @@ TypeSourceInfo *Sema::SubstType(TypeLoc TL,
     return TLB.getTypeSourceInfo(Context, TL.getType());
   }
 
-  TemplateInstantiator Instantiator(*this, Args, Loc, Entity);
+  TemplateInstantiator Instantiator(*this, Args, 0, Loc, Entity);
   TypeLocBuilder TLB;
   TLB.reserve(TL.getFullDataSize());
   QualType Result = Instantiator.TransformType(TLB, TL);
@@ -1630,7 +1635,7 @@ QualType Sema::SubstType(QualType T,
   if (!T->isInstantiationDependentType() && !T->isVariablyModifiedType())
     return T;
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs, Loc, Entity);
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0, Loc, Entity);
   return Instantiator.TransformType(T);
 }
 
@@ -1662,6 +1667,7 @@ static bool NeedsInstantiationAsFunctionType(TypeSourceInfo *T) {
 /// instantiating an exception-specification.
 TypeSourceInfo *Sema::SubstFunctionDeclType(TypeSourceInfo *T,
                                 const MultiLevelTemplateArgumentList &Args,
+                                Optional<unsigned> PackSize,
                                 SourceLocation Loc,
                                 DeclarationName Entity,
                                 CXXRecordDecl *ThisContext,
@@ -1673,7 +1679,7 @@ TypeSourceInfo *Sema::SubstFunctionDeclType(TypeSourceInfo *T,
   if (!NeedsInstantiationAsFunctionType(T))
     return T;
 
-  TemplateInstantiator Instantiator(*this, Args, Loc, Entity);
+  TemplateInstantiator Instantiator(*this, Args, PackSize, Loc, Entity);
 
   TypeLocBuilder TLB;
 
@@ -1709,7 +1715,7 @@ bool Sema::SubstExceptionSpec(SourceLocation Loc,
   assert(ESI.Type != EST_Uninstantiated);
 
   bool Changed = false;
-  TemplateInstantiator Instantiator(*this, Args, Loc, DeclarationName());
+  TemplateInstantiator Instantiator(*this, Args, 0, Loc, DeclarationName());
   return Instantiator.TransformExceptionSpec(Loc, ESI, ExceptionStorage,
                                              Changed);
 }
@@ -1746,12 +1752,13 @@ ParmVarDecl *Sema::SubstParmVarDecl(ParmVarDecl *OldParm,
     if (!NewDI)
       return nullptr;
 
-    if (NewDI->getType()->containsUnexpandedParameterPack()) {
+    if (NewDI->getType()->containsUnexpandedParameterPack() ||
+        (ExpectParameterPack && !OldDI->getType()->containsUnexpandedParameterPack())) {
       // We still have unexpanded parameter packs, which means that
       // our function parameter is still a function parameter pack.
       // Therefore, make its type a pack expansion type.
-      NewDI = CheckPackExpansion(NewDI, ExpansionTL.getEllipsisLoc(),
-                                 NumExpansions);
+      NewDI = CheckPackExpansionType(NewDI, ExpansionTL.getEllipsisLoc(),
+                                     NumExpansions, /*AllowHomogeneous*/true);
     } else if (ExpectParameterPack) {
       // We expected to get a parameter pack but didn't (because the type
       // itself is not a pack expansion type), so complain. This can occur when
@@ -1841,6 +1848,7 @@ bool Sema::SubstParmTypes(
     SourceLocation Loc, ArrayRef<ParmVarDecl *> Params,
     const FunctionProtoType::ExtParameterInfo *ExtParamInfos,
     const MultiLevelTemplateArgumentList &TemplateArgs,
+    Optional<unsigned> PackSize,
     SmallVectorImpl<QualType> &ParamTypes,
     SmallVectorImpl<ParmVarDecl *> *OutParams,
     ExtParameterInfoBuilder &ParamInfos) {
@@ -1848,7 +1856,7 @@ bool Sema::SubstParmTypes(
          "Cannot perform an instantiation without some context on the "
          "instantiation stack");
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs, Loc,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, PackSize, Loc,
                                     DeclarationName());
   return Instantiator.TransformFunctionTypeParams(
       Loc, Params, nullptr, ExtParamInfos, ParamTypes, OutParams, ParamInfos);
@@ -2797,7 +2805,7 @@ Sema::SubstStmt(Stmt *S, const MultiLevelTemplateArgumentList &TemplateArgs) {
   if (!S)
     return S;
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0,
                                     SourceLocation(),
                                     DeclarationName());
   return Instantiator.TransformStmt(S);
@@ -2808,7 +2816,7 @@ Sema::SubstExpr(Expr *E, const MultiLevelTemplateArgumentList &TemplateArgs) {
   if (!E)
     return E;
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0,
                                     SourceLocation(),
                                     DeclarationName());
   return Instantiator.TransformExpr(E);
@@ -2817,7 +2825,7 @@ Sema::SubstExpr(Expr *E, const MultiLevelTemplateArgumentList &TemplateArgs) {
 ExprResult Sema::SubstInitializer(Expr *Init,
                           const MultiLevelTemplateArgumentList &TemplateArgs,
                           bool CXXDirectInit) {
-  TemplateInstantiator Instantiator(*this, TemplateArgs,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0,
                                     SourceLocation(),
                                     DeclarationName());
   return Instantiator.TransformInitializer(Init, CXXDirectInit);
@@ -2829,7 +2837,7 @@ bool Sema::SubstExprs(ArrayRef<Expr *> Exprs, bool IsCall,
   if (Exprs.empty())
     return false;
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0,
                                     SourceLocation(),
                                     DeclarationName());
   return Instantiator.TransformExprs(Exprs.data(), Exprs.size(),
@@ -2842,7 +2850,7 @@ Sema::SubstNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS,
   if (!NNS)
     return NestedNameSpecifierLoc();
 
-  TemplateInstantiator Instantiator(*this, TemplateArgs, NNS.getBeginLoc(),
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0, NNS.getBeginLoc(),
                                     DeclarationName());
   return Instantiator.TransformNestedNameSpecifierLoc(NNS);
 }
@@ -2851,7 +2859,7 @@ Sema::SubstNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS,
 DeclarationNameInfo
 Sema::SubstDeclarationNameInfo(const DeclarationNameInfo &NameInfo,
                          const MultiLevelTemplateArgumentList &TemplateArgs) {
-  TemplateInstantiator Instantiator(*this, TemplateArgs, NameInfo.getLoc(),
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0, NameInfo.getLoc(),
                                     NameInfo.getName());
   return Instantiator.TransformDeclarationNameInfo(NameInfo);
 }
@@ -2860,7 +2868,7 @@ TemplateName
 Sema::SubstTemplateName(NestedNameSpecifierLoc QualifierLoc,
                         TemplateName Name, SourceLocation Loc,
                         const MultiLevelTemplateArgumentList &TemplateArgs) {
-  TemplateInstantiator Instantiator(*this, TemplateArgs, Loc,
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0, Loc,
                                     DeclarationName());
   CXXScopeSpec SS;
   SS.Adopt(QualifierLoc);
@@ -2870,7 +2878,7 @@ Sema::SubstTemplateName(NestedNameSpecifierLoc QualifierLoc,
 bool Sema::Subst(const TemplateArgumentLoc *Args, unsigned NumArgs,
                  TemplateArgumentListInfo &Result,
                  const MultiLevelTemplateArgumentList &TemplateArgs) {
-  TemplateInstantiator Instantiator(*this, TemplateArgs, SourceLocation(),
+  TemplateInstantiator Instantiator(*this, TemplateArgs, 0, SourceLocation(),
                                     DeclarationName());
 
   return Instantiator.TransformTemplateArguments(Args, NumArgs, Result);

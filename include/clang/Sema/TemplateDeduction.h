@@ -155,6 +155,9 @@ public:
   /// diagnostics.
   diag_iterator diag_end() const { return SuppressedDiagnostics.end(); }
 
+  /// The number of elements in a parameter pack.
+  unsigned PackSize = 0;
+
   /// The template parameter to which a template argument
   /// deduction failure refers.
   ///

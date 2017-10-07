@@ -4019,6 +4019,12 @@ public:
   /// function.
   bool isTemplateVariadic() const;
 
+  /// Determines whether this function prototype contains a homogeneous
+  /// parameter pack at the end.  A homogeneous parameter pack is a
+  /// function parameter pack that does not expand a template parameter
+  /// pack.
+  bool isTemplateHomogeneousVariadic() const;
+
   /// Whether this function prototype has a trailing return type.
   bool hasTrailingReturn() const { return FunctionTypeBits.HasTrailingReturn; }
 

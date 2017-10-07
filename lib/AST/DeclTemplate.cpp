@@ -199,11 +199,11 @@ template<class EntryType>
 typename RedeclarableTemplateDecl::SpecEntryTraits<EntryType>::DeclType *
 RedeclarableTemplateDecl::findSpecializationImpl(
     llvm::FoldingSetVector<EntryType> &Specs, ArrayRef<TemplateArgument> Args,
-    void *&InsertPos) {
+    unsigned PackSize, void *&InsertPos) {
   using SETraits = SpecEntryTraits<EntryType>;
 
   llvm::FoldingSetNodeID ID;
-  EntryType::Profile(ID, Args, getASTContext());
+  EntryType::Profile(ID, Args, PackSize, getASTContext());
   EntryType *Entry = Specs.FindNodeOrInsertPos(ID, InsertPos);
   return Entry ? SETraits::getDecl(Entry)->getMostRecentDecl() : nullptr;
 }
@@ -219,6 +219,7 @@ void RedeclarableTemplateDecl::addSpecializationImpl(
     void *CorrectInsertPos;
     assert(!findSpecializationImpl(Specializations,
                                    SETraits::getTemplateArgs(Entry),
+                                   SETraits::getPackSize(Entry),
                                    CorrectInsertPos) &&
            InsertPos == CorrectInsertPos &&
            "given incorrect InsertPos for specialization");
@@ -275,8 +276,9 @@ FunctionTemplateDecl::getSpecializations() const {
 
 FunctionDecl *
 FunctionTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
+                                         unsigned PackSize,
                                          void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), Args, PackSize, InsertPos);
 }
 
 void FunctionTemplateDecl::addSpecialization(
@@ -391,7 +393,7 @@ ClassTemplateDecl::newCommon(ASTContext &C) const {
 ClassTemplateSpecializationDecl *
 ClassTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
                                       void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), Args, 0, InsertPos);
 }
 
 void ClassTemplateDecl::AddSpecialization(ClassTemplateSpecializationDecl *D,
@@ -402,7 +404,7 @@ void ClassTemplateDecl::AddSpecialization(ClassTemplateSpecializationDecl *D,
 ClassTemplatePartialSpecializationDecl *
 ClassTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
                                              void *&InsertPos) {
-  return findSpecializationImpl(getPartialSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getPartialSpecializations(), Args, 0, InsertPos);
 }
 
 void ClassTemplateDecl::AddPartialSpecialization(
@@ -692,6 +694,7 @@ FunctionTemplateSpecializationInfo::Create(ASTContext &C, FunctionDecl *FD,
                                            FunctionTemplateDecl *Template,
                                            TemplateSpecializationKind TSK,
                                        const TemplateArgumentList *TemplateArgs,
+                                           unsigned PackSize,
                           const TemplateArgumentListInfo *TemplateArgsAsWritten,
                                            SourceLocation POI) {
   const ASTTemplateArgumentListInfo *ArgsAsWritten = nullptr;
@@ -701,6 +704,7 @@ FunctionTemplateSpecializationInfo::Create(ASTContext &C, FunctionDecl *FD,
 
   return new (C) FunctionTemplateSpecializationInfo(FD, Template, TSK,
                                                     TemplateArgs,
+                                                    PackSize,
                                                     ArgsAsWritten,
                                                     POI);
 }
@@ -991,7 +995,7 @@ VarTemplateDecl::newCommon(ASTContext &C) const {
 VarTemplateSpecializationDecl *
 VarTemplateDecl::findSpecialization(ArrayRef<TemplateArgument> Args,
                                     void *&InsertPos) {
-  return findSpecializationImpl(getSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getSpecializations(), Args, 0, InsertPos);
 }
 
 void VarTemplateDecl::AddSpecialization(VarTemplateSpecializationDecl *D,
@@ -1002,7 +1006,7 @@ void VarTemplateDecl::AddSpecialization(VarTemplateSpecializationDecl *D,
 VarTemplatePartialSpecializationDecl *
 VarTemplateDecl::findPartialSpecialization(ArrayRef<TemplateArgument> Args,
                                            void *&InsertPos) {
-  return findSpecializationImpl(getPartialSpecializations(), Args, InsertPos);
+  return findSpecializationImpl(getPartialSpecializations(), Args, 0, InsertPos);
 }
 
 void VarTemplateDecl::AddPartialSpecialization(

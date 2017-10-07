@@ -489,7 +489,8 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
     Builder.defineMacro("__cpp_decltype", "200707L");
     Builder.defineMacro("__cpp_attributes", "200809L");
     Builder.defineMacro("__cpp_rvalue_references", "200610L");
-    Builder.defineMacro("__cpp_variadic_templates", "200704L");
+    Builder.defineMacro("__cpp_variadic_templates",
+                        LangOpts.FunctionParameterPacks ? "201907L" : "200704L");
     Builder.defineMacro("__cpp_initializer_lists", "200806L");
     Builder.defineMacro("__cpp_delegating_constructors", "200604L");
     Builder.defineMacro("__cpp_nsdmi", "200809L");

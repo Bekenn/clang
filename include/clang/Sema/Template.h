@@ -421,6 +421,7 @@ class VarDecl;
     Sema::ArgumentPackSubstitutionIndexRAII SubstIndex;
     DeclContext *Owner;
     const MultiLevelTemplateArgumentList &TemplateArgs;
+    Optional<unsigned> PackSize;
     Sema::LateInstantiatedAttrVec* LateAttrs = nullptr;
     LocalInstantiationScope *StartingScope = nullptr;
 
@@ -441,10 +442,11 @@ class VarDecl;
 
   public:
     TemplateDeclInstantiator(Sema &SemaRef, DeclContext *Owner,
-                             const MultiLevelTemplateArgumentList &TemplateArgs)
-        : SemaRef(SemaRef),
-          SubstIndex(SemaRef, SemaRef.ArgumentPackSubstitutionIndex),
-          Owner(Owner), TemplateArgs(TemplateArgs) {}
+                             const MultiLevelTemplateArgumentList &TemplateArgs,
+                             Optional<unsigned> PackSize = None)
+      : SemaRef(SemaRef),
+        SubstIndex(SemaRef, SemaRef.ArgumentPackSubstitutionIndex),
+        Owner(Owner), TemplateArgs(TemplateArgs), PackSize(PackSize) {}
 
 // Define all the decl visitors using DeclNodes.inc
 #define DECL(DERIVED, BASE) \

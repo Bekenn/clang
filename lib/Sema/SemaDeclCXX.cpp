@@ -371,7 +371,7 @@ void Sema::ActOnParamDefaultArgumentError(Decl *param,
 /// or definition and therefore is not permitted to have default
 /// arguments. This routine should be invoked for every declarator
 /// that is not a function declaration or definition.
-void Sema::CheckExtraCXXDefaultArguments(Declarator &D) {
+void Sema::CheckExtraCXXDefaultArgumentsAndPacks(Declarator &D) {
   // C++ [dcl.fct.default]p3
   //   A default argument expression shall be specified only in the
   //   parameter-declaration-clause of a function declaration or in a
@@ -408,6 +408,13 @@ void Sema::CheckExtraCXXDefaultArguments(Declarator &D) {
           Diag(Param->getLocation(), diag::err_param_default_argument_nonfunc)
             << Param->getDefaultArg()->getSourceRange();
           Param->setDefaultArg(nullptr);
+        }
+        if (const PackExpansionType* PackTy = Param->getType()->getAs<PackExpansionType>()) {
+          if (!PackTy->getPattern()->containsUnexpandedParameterPack()) {
+            Diag(Param->getLocation(), diag::err_param_homogeneous_parameter_pack)
+              << Param->getSourceRange();
+            Param->setType(PackTy->getPattern());
+          }
         }
       }
     } else if (chunk.Kind != DeclaratorChunk::Paren) {
@@ -10579,17 +10586,32 @@ Decl *Sema::ActOnAliasDeclaration(Scope *S, AccessSpecifier AS,
 
   bool Redeclaration = false;
 
-  NamedDecl *NewND;
+  TemplateParameterList *TemplateParams = nullptr;
   if (TemplateParamLists.size()) {
-    TypeAliasTemplateDecl *OldDecl = nullptr;
-    TemplateParameterList *OldTemplateParams = nullptr;
-
     if (TemplateParamLists.size() != 1) {
       Diag(UsingLoc, diag::err_alias_template_extra_headers)
         << SourceRange(TemplateParamLists[1]->getTemplateLoc(),
          TemplateParamLists[TemplateParamLists.size()-1]->getRAngleLoc());
     }
-    TemplateParameterList *TemplateParams = TemplateParamLists[0];
+    TemplateParams = TemplateParamLists[0];
+
+    if (!TemplateParams->size() &&
+        Name.getKind() != UnqualifiedIdKind::IK_TemplateId) {
+      // There is an extraneous 'template<>' for this alias. Complain
+      // about it, but allow the declaration of the alias.
+      Diag(TemplateParams->getTemplateLoc(),
+           diag::err_template_alias_noparams)
+      << Name.Identifier
+      << SourceRange(TemplateParams->getTemplateLoc(),
+                     TemplateParams->getRAngleLoc());
+      TemplateParams = nullptr;
+    }
+  }
+
+  NamedDecl *NewND;
+  if (TemplateParams) {
+    TypeAliasTemplateDecl *OldDecl = nullptr;
+    TemplateParameterList *OldTemplateParams = nullptr;
 
     // Check that we can declare a template here.
     if (CheckTemplateDeclScope(S, TemplateParams))
@@ -12804,14 +12826,16 @@ void Sema::DefineImplicitLambdaToFunctionPointerConversion(
   FunctionDecl *CallOp = Lambda->getLambdaCallOperator();
   FunctionDecl *Invoker = Lambda->getLambdaStaticInvoker();
 
-  if (auto *TemplateArgs = Conv->getTemplateSpecializationArgs()) {
+  if (FunctionTemplateSpecializationInfo *Info = Conv->getTemplateSpecializationInfo()) {
+    auto *TemplateArgs = Info->TemplateArguments;
+    unsigned PackSize = Info->PackSize;
     CallOp = InstantiateFunctionDeclaration(
-        CallOp->getDescribedFunctionTemplate(), TemplateArgs, CurrentLocation);
+        CallOp->getDescribedFunctionTemplate(), TemplateArgs, PackSize, CurrentLocation);
     if (!CallOp)
       return;
 
     Invoker = InstantiateFunctionDeclaration(
-        Invoker->getDescribedFunctionTemplate(), TemplateArgs, CurrentLocation);
+        Invoker->getDescribedFunctionTemplate(), TemplateArgs, PackSize, CurrentLocation);
     if (!Invoker)
       return;
   }
@@ -15599,7 +15623,7 @@ MSPropertyDecl *Sema::HandleMSProperty(Scope *S, RecordDecl *Record,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D, S);
   QualType T = TInfo->getType();
   if (getLangOpts().CPlusPlus) {
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
 
     if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                         UPPC_DataMemberType)) {

@@ -114,7 +114,7 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(
         FnD->getAsFunction()->getReturnType()->getContainedAutoType()) &&
       ((Actions.CurContext->isDependentContext() ||
         (TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate &&
-         TemplateInfo.Kind != ParsedTemplateInfo::ExplicitSpecialization)) &&
+         FnD->getAsFunction()->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)) &&
        !Actions.IsInsideALocalClassWithinATemplateFunction())) {
 
     CachedTokens Toks;

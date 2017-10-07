@@ -774,13 +774,11 @@ Decl *Parser::ParseAliasDeclarationAfterDeclarator(
        diag::warn_cxx98_compat_alias_declaration :
        diag::ext_alias_declaration);
 
-  // Type alias templates cannot be specialized.
+  // Type alias templates cannot be specialized or explicitly instantiated.
   int SpecKind = -1;
   if (TemplateInfo.Kind == ParsedTemplateInfo::Template &&
       D.Name.getKind() == UnqualifiedIdKind::IK_TemplateId)
-    SpecKind = 0;
-  if (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitSpecialization)
-    SpecKind = 1;
+    SpecKind = TemplateInfo.LastParameterListWasEmpty ? 1 : 0;
   if (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation)
     SpecKind = 2;
   if (SpecKind != -1) {
@@ -817,7 +815,8 @@ Decl *Parser::ParseAliasDeclarationAfterDeclarator(
   Decl *DeclFromDeclSpec = nullptr;
   TypeResult TypeAlias = ParseTypeName(
       nullptr,
-      TemplateInfo.Kind ? DeclaratorContext::AliasTemplateContext
+      TemplateInfo.Kind == ParsedTemplateInfo::Template
+                        ? DeclaratorContext::AliasTemplateContext
                         : DeclaratorContext::AliasDeclContext,
       AS, &DeclFromDeclSpec, &Attrs);
   if (OwnedType)
@@ -1402,10 +1401,9 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
   // specializing traits classes for private types.
   //
   // Note that we don't suppress if this turns out to be an elaborated
-  // type specifier.
+  // type specifier or an ordinary template declaration.
   bool shouldDelayDiagsInTag =
-    (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation ||
-     TemplateInfo.Kind == ParsedTemplateInfo::ExplicitSpecialization);
+    TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate;
   SuppressAccessChecks diagsFromTag(*this, shouldDelayDiagsInTag);
 
   ParsedAttributesWithRange attrs(AttrFactory);
@@ -1809,7 +1807,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         // but it actually has a definition. Most likely, this was
         // meant to be an explicit specialization, but the user forgot
         // the '<>' after 'template'.
-        // It this is friend declaration however, since it cannot have a
+        // If this is a friend declaration, however, since it cannot have a
         // template header, it is most likely that the user meant to
         // remove the 'template' keyword.
         assert((TUK == Sema::TUK_Definition || TUK == Sema::TUK_Friend) &&
@@ -1830,7 +1828,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
           // "template<>", so that we treat this construct as a class
           // template specialization.
           FakedParamLists.push_back(Actions.ActOnTemplateParameterList(
-              0, SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
+              SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
               LAngleLoc, nullptr));
           TemplateParams = &FakedParamLists;
         }
@@ -1844,6 +1842,23 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                                                 : nullptr,
                                  TemplateParams ? TemplateParams->size() : 0),
           &SkipBody);
+
+      // If this is an explicit specialization, deactivate the enclosing template
+      // parameter scope (fixes dr183).
+      bool isExplicitSpecialization = false;
+      if (auto SpecDecl = TagOrTempResult.getAs<ClassTemplateSpecializationDecl>()) {
+        if ((isExplicitSpecialization = SpecDecl->getSpecializationKind() == TSK_ExplicitSpecialization) &&
+            !isa<ClassTemplatePartialSpecializationDecl>(SpecDecl)) {
+          if (auto scope = getCurScope()->getTemplateParamParent()) {
+            if (scope->decl_empty()) {
+              auto NewFlags = scope->getFlags() & ~Scope::TemplateParamScope;
+              scope->setFlags(NewFlags);
+            }
+          }
+        }
+      }
+      if (!isExplicitSpecialization)
+        diagsFromTag.redelay();
     }
   } else if (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation &&
              TUK == Sema::TUK_Declaration) {

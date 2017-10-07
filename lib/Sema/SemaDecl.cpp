@@ -5496,7 +5496,7 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   // Check that there are no default arguments other than in the parameters
   // of a function declaration (C++ only).
   if (getLangOpts().CPlusPlus)
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
 
   NamedDecl *New;
 
@@ -8402,7 +8402,9 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
                     : nullptr,
                 TemplateParamLists, isFriend, isMemberSpecialization,
                 Invalid)) {
-      if (TemplateParams->size() > 0) {
+      assert(R->isFunctionProtoType());
+      if (TemplateParams->size() > 0 ||
+          R->getAs<FunctionProtoType>()->isTemplateHomogeneousVariadic()) {
         // This is a function template
 
         // Check that we can declare a template here.
@@ -8754,6 +8756,45 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   } else {
     assert(R->isFunctionNoProtoType() && NewFD->getNumParams() == 0 &&
            "Should not need args for typedef of non-prototype fn");
+  }
+
+  if (getLangOpts().FunctionParameterPacks) {
+    // Check for homogeneous function parameter packs.
+    const ParmVarDecl *PackDecl = nullptr;
+    for (const ParmVarDecl *Param : Params) {
+      if (PackDecl) {
+        Diag(PackDecl->getLocation(), diag::err_function_homogeneous_parameter_pack_must_be_last_parameter) << PackDecl->getSourceRange();
+        NewFD->setInvalidDecl();
+      }
+      QualType PT = Param->getType();
+      const PackExpansionType* PackType = PT->getAs<PackExpansionType>();
+      if (PackType && !PackType->containsUnexpandedParameterPack()) {
+        PackDecl = Param;
+        if (!FunctionTemplate) {
+          DeclarationNameInfo NameInfo = NewFD->getNameInfo();
+          TemplateParameterList* TemplateParams = TemplateParameterList::Create(Context,
+                                                                                SourceLocation(),
+                                                                                NameInfo.getBeginLoc(),
+                                                                                ArrayRef<NamedDecl *>(),
+                                                                                NameInfo.getEndLoc(),
+                                                                                nullptr);
+          FunctionTemplate = FunctionTemplateDecl::Create(Context, DC,
+                                                          NewFD->getLocation(),
+                                                          Name, TemplateParams,
+                                                          NewFD);
+          FunctionTemplate->setLexicalDeclContext(CurContext);
+          NewFD->setDescribedFunctionTemplate(FunctionTemplate);
+          if (NewFD->isInvalidDecl())
+            FunctionTemplate->setInvalidDecl();
+          if (D.getDeclSpec().isModulePrivateSpecified())
+            FunctionTemplate->setModulePrivate();
+          if (isFriend) {
+            FunctionTemplate->setObjectOfFriendDecl();
+            FunctionTemplate->setAccess(AS_public);
+          }
+        }
+      }
+    }
   }
 
   // Finally, we know we have the right number of parameters, install them.
@@ -12404,7 +12445,7 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D) {
   if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments inside the type of this
     // parameter.
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
 
     // Parameter declarators cannot be qualified (C++ [dcl.meaning]p1).
     if (D.getCXXScopeSpec().isSet()) {
@@ -12645,19 +12686,6 @@ void Sema::ActOnFinishKNRParamDeclarations(Scope *S, Declarator &D,
       }
     }
   }
-}
-
-Decl *
-Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Declarator &D,
-                              MultiTemplateParamsArg TemplateParameterLists,
-                              SkipBodyInfo *SkipBody) {
-  assert(getCurFunctionDecl() == nullptr && "Function parsing confused");
-  assert(D.isFunctionDeclarator() && "Not a function declarator!");
-  Scope *ParentScope = FnBodyScope->getParent();
-
-  D.setFunctionDefinitionKind(FDK_Definition);
-  Decl *DP = HandleDeclarator(ParentScope, D, TemplateParameterLists);
-  return ActOnStartOfFunctionDef(FnBodyScope, DP, SkipBody);
 }
 
 void Sema::ActOnFinishInlineFunctionDef(FunctionDecl *D) {
@@ -15236,7 +15264,7 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D, S);
   QualType T = TInfo->getType();
   if (getLangOpts().CPlusPlus) {
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
 
     if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                         UPPC_DataMemberType)) {

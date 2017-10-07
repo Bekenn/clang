@@ -1097,37 +1097,45 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
             << AL.getName();
   }
 
+  D.setFunctionDefinitionKind(FDK_Definition);
+  Decl *DP = Actions.HandleDeclarator(getCurScope(), D, TemplateInfo.TemplateParams
+                                                  ? *TemplateInfo.TemplateParams
+                                                  : MultiTemplateParamsArg());
+
+  if (FunctionDecl *FD = DP ? DP->getAsFunction() : nullptr) {
+    if (FD->getTemplateSpecializationKind() == TSK_ExplicitSpecialization) {
+      if (auto scope = getCurScope()->getTemplateParamParent()) {
+        if (scope->decl_empty()) {
+          auto flags = scope->getFlags() & ~Scope::TemplateParamScope;
+          scope->setFlags(flags);
+        }
+      }
+    }
+  }
+
   // In delayed template parsing mode, for function template we consume the
   // tokens and store them for late parsing at the end of the translation unit.
   if (getLangOpts().DelayedTemplateParsing && Tok.isNot(tok::equal) &&
       TemplateInfo.Kind == ParsedTemplateInfo::Template &&
+      (!DP || DP->getAsFunction()->getTemplateSpecializationKind() != TSK_ExplicitSpecialization) &&
       Actions.canDelayFunctionBody(D)) {
-    MultiTemplateParamsArg TemplateParameterLists(*TemplateInfo.TemplateParams);
-
-    ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
-                                   Scope::CompoundStmtScope);
-    Scope *ParentScope = getCurScope()->getParent();
-
-    D.setFunctionDefinitionKind(FDK_Definition);
-    Decl *DP = Actions.HandleDeclarator(ParentScope, D,
-                                        TemplateParameterLists);
     D.complete(DP);
     D.getMutableDeclSpec().abort();
 
+    ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
+                                   Scope::CompoundStmtScope);
+
     if (SkipFunctionBodies && (!DP || Actions.canSkipFunctionBody(DP)) &&
         trySkippingFunctionBody()) {
-      BodyScope.Exit();
       return Actions.ActOnSkippedFunctionBody(DP);
     }
 
     CachedTokens Toks;
     LexTemplateFunctionForLateParsing(Toks);
 
-    if (DP) {
-      FunctionDecl *FnD = DP->getAsFunction();
-      Actions.CheckForFunctionRedefinition(FnD);
-      Actions.MarkAsLateParsedTemplate(FnD, DP, Toks);
-    }
+    FunctionDecl *FnD = DP->getAsFunction();
+    Actions.CheckForFunctionRedefinition(FnD);
+    Actions.MarkAsLateParsedTemplate(FnD, DP, Toks);
     return DP;
   }
   else if (CurParsedObjCImpl &&
@@ -1135,22 +1143,18 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
            (Tok.is(tok::l_brace) || Tok.is(tok::kw_try) ||
             Tok.is(tok::colon)) &&
       Actions.CurContext->isTranslationUnit()) {
-    ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
-                                   Scope::CompoundStmtScope);
-    Scope *ParentScope = getCurScope()->getParent();
-
-    D.setFunctionDefinitionKind(FDK_Definition);
-    Decl *FuncDecl = Actions.HandleDeclarator(ParentScope, D,
-                                              MultiTemplateParamsArg());
-    D.complete(FuncDecl);
+    D.complete(DP);
     D.getMutableDeclSpec().abort();
-    if (FuncDecl) {
+
+    if (DP) {
+      ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
+                           Scope::CompoundStmtScope);
+
       // Consume the tokens and store them for later parsing.
-      StashAwayMethodOrFunctionBodyTokens(FuncDecl);
+      StashAwayMethodOrFunctionBodyTokens(DP);
       CurParsedObjCImpl->HasCFunction = true;
-      return FuncDecl;
+      return DP;
     }
-    // FIXME: Should we really fall through here?
   }
 
   // Enter a scope for the function body.
@@ -1160,11 +1164,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // Tell the actions module that we have entered a function definition with the
   // specified Declarator for the function.
   Sema::SkipBodyInfo SkipBody;
-  Decl *Res = Actions.ActOnStartOfFunctionDef(getCurScope(), D,
-                                              TemplateInfo.TemplateParams
-                                                  ? *TemplateInfo.TemplateParams
-                                                  : MultiTemplateParamsArg(),
-                                              &SkipBody);
+  Decl *Res = Actions.ActOnStartOfFunctionDef(getCurScope(), DP, &SkipBody);
 
   if (SkipBody.ShouldSkip) {
     SkipFunctionBody();

@@ -4743,6 +4743,14 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           QualType ParamTy = Param->getType();
           assert(!ParamTy.isNull() && "Couldn't parse type?");
 
+          // Check for homogeneous parameter packs.
+          const PackExpansionType* PackTy = ParamTy->getAs<PackExpansionType>();
+          unsigned PackQuals = ParamTy.getLocalFastQualifiers();
+          if (PackTy && !PackTy->getPattern()->containsUnexpandedParameterPack()) {
+            // Perform remaining checks on the pattern type.
+            ParamTy = PackTy->getPattern();
+          }
+
           // Look for 'void'.  void is allowed only as a single parameter to a
           // function with no other parameters (C99 6.7.5.3p10).  We record
           // int(void) as a FunctionProtoType with an empty parameter list.
@@ -4750,15 +4758,15 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             // If this is something like 'float(int, void)', reject it.  'void'
             // is an incomplete type (C99 6.2.5p19) and function decls cannot
             // have parameters of incomplete type.
-            if (FTI.NumParams != 1 || FTI.isVariadic) {
-              S.Diag(DeclType.Loc, diag::err_void_only_param);
-              ParamTy = Context.IntTy;
-              Param->setType(ParamTy);
-            } else if (FTI.Params[i].Ident) {
+            if (FTI.Params[i].Ident || PackTy != nullptr) {
               // Reject, but continue to parse 'int(void abc)'.
               S.Diag(FTI.Params[i].IdentLoc, diag::err_param_with_void_type);
               ParamTy = Context.IntTy;
-              Param->setType(ParamTy);
+              Param->setType(PackTy ? S.getASTContext().getPackExpansionType(ParamTy, PackTy->getNumExpansions()) : ParamTy);
+            } else if (FTI.NumParams != 1 || FTI.isVariadic) {
+              S.Diag(DeclType.Loc, diag::err_void_only_param);
+              ParamTy = Context.IntTy;
+              Param->setType(PackTy ? S.getASTContext().getPackExpansionType(ParamTy, PackTy->getNumExpansions()) : ParamTy);
             } else {
               // Reject, but continue to parse 'float(const void)'.
               if (ParamTy.hasQualifiers())
@@ -4815,7 +4823,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             HasAnyInterestingExtParameterInfos = true;
           }
 
-          ParamTys.push_back(ParamTy);
+          ParamTys.push_back(PackTy ? QualType(PackTy, PackQuals) : ParamTy);
         }
 
         if (HasAnyInterestingExtParameterInfos) {
@@ -5135,13 +5143,21 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       //
       // We represent function parameter packs as function parameters whose
       // type is a pack expansion.
-      if (!T->containsUnexpandedParameterPack()) {
+      if (T->containsUnexpandedParameterPack())
+        T = Context.getPackExpansionType(T, None);
+      else if (LangOpts.FunctionParameterPacks) {
+        if (D.getContext() == DeclaratorContext::LambdaExprParameterContext) {
+          // If a homogeneous pack appears in a lambda parameter context,
+          // the lambda is a generic lambda.
+          sema::LambdaScopeInfo *LSI = S.getCurLambda();
+          LSI->ContainsHomogeneousParameterPack = true;
+        }
+        T = Context.getPackExpansionType(T, None);
+      } else {
         S.Diag(D.getEllipsisLoc(),
              diag::err_function_parameter_pack_without_parameter_packs)
           << T <<  D.getSourceRange();
         D.setEllipsisLoc(SourceLocation());
-      } else {
-        T = Context.getPackExpansionType(T, None);
       }
       break;
     case DeclaratorContext::TemplateParamContext:
@@ -5782,7 +5798,7 @@ TypeResult Sema::ActOnTypeName(Scope *S, Declarator &D) {
 
   if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments (C++ only).
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
   }
 
   return CreateParsedType(T, TInfo);
@@ -8012,6 +8028,9 @@ static unsigned getLiteralDiagFromTagKind(TagTypeKind Tag) {
 bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
                               TypeDiagnoser &Diagnoser) {
   assert(!T->isDependentType() && "type should not be dependent");
+
+  if (const PackExpansionType *PackType = T->getAs<PackExpansionType>())
+    T = PackType->getPattern();
 
   QualType ElemType = Context.getBaseElementType(T);
   if ((isCompleteType(Loc, ElemType) || ElemType->isVoidType()) &&

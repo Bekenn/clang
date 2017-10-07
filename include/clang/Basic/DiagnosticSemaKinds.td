@@ -3560,6 +3560,9 @@ def err_param_default_argument_member_template_redecl : Error<
   "class in a template}0">;
 def err_param_default_argument_on_parameter_pack : Error<
   "parameter pack cannot have a default argument">;
+def err_param_homogeneous_parameter_pack : Error<
+  "homogeneous parameter packs can only be specified for parameters in a function "
+  "declaration">;
 def err_uninitialized_member_for_assign : Error<
   "cannot define the implicit copy assignment operator for %0, because "
   "non-static %select{reference|const}1 member %2 cannot use copy "
@@ -3943,6 +3946,8 @@ def ext_variable_template : ExtWarn<"variable templates are a C++14 extension">,
 def warn_cxx11_compat_variable_template : Warning<
   "variable templates are incompatible with C++ standards before C++14">,
   InGroup<CXXPre14Compat>, DefaultIgnore;
+def err_template_alias_noparams : Error<
+  "extraneous 'template<>' in declaration of alias %0">;
 def err_template_variable_noparams : Error<
   "extraneous 'template<>' in declaration of variable %0">;
 def err_template_member : Error<"member %0 declared as a template">;
@@ -4534,6 +4539,8 @@ def err_pack_expansion_member_init : Error<
 def err_function_parameter_pack_without_parameter_packs : Error<
   "type %0 of function parameter pack does not contain any unexpanded "
   "parameter packs">;
+def err_function_homogeneous_parameter_pack_must_be_last_parameter : Error<
+  "homogeneous parameter pack must be the last function parameter">;
 def err_ellipsis_in_declarator_not_parameter : Error<
   "only function and template parameters can be parameter packs">;
 

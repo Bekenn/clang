@@ -2093,9 +2093,6 @@ public:
   void CheckForFunctionRedefinition(
       FunctionDecl *FD, const FunctionDecl *EffectiveDefinition = nullptr,
       SkipBodyInfo *SkipBody = nullptr);
-  Decl *ActOnStartOfFunctionDef(Scope *S, Declarator &D,
-                                MultiTemplateParamsArg TemplateParamLists,
-                                SkipBodyInfo *SkipBody = nullptr);
   Decl *ActOnStartOfFunctionDef(Scope *S, Decl *D,
                                 SkipBodyInfo *SkipBody = nullptr);
   void ActOnStartOfObjCMethodDef(Scope *S, Decl *D);
@@ -3096,7 +3093,7 @@ public:
   bool CheckParmsForFunctionDef(ArrayRef<ParmVarDecl *> Parameters,
                                 bool CheckParameterNames);
   void CheckCXXDefaultArguments(FunctionDecl *FD);
-  void CheckExtraCXXDefaultArguments(Declarator &D);
+  void CheckExtraCXXDefaultArgumentsAndPacks(Declarator &D);
   Scope *getNonFieldDeclScope(Scope *S);
 
   /// \name Name lookup
@@ -6312,8 +6309,7 @@ public:
                                        ParsedTemplateArgument DefaultArg);
 
   TemplateParameterList *
-  ActOnTemplateParameterList(unsigned Depth,
-                             SourceLocation ExportLoc,
+  ActOnTemplateParameterList(SourceLocation ExportLoc,
                              SourceLocation TemplateLoc,
                              SourceLocation LAngleLoc,
                              ArrayRef<NamedDecl *> Params,
@@ -6894,17 +6890,19 @@ public:
   TypeResult ActOnPackExpansion(ParsedType Type, SourceLocation EllipsisLoc);
 
   /// Construct a pack expansion type from the pattern of the pack
-  /// expansion.
-  TypeSourceInfo *CheckPackExpansion(TypeSourceInfo *Pattern,
-                                     SourceLocation EllipsisLoc,
-                                     Optional<unsigned> NumExpansions);
+  /// declaration.
+  TypeSourceInfo *CheckPackExpansionType(TypeSourceInfo *Pattern,
+                                         SourceLocation EllipsisLoc,
+                                         Optional<unsigned> NumExpansions,
+                                         bool AllowHomogeneous);
 
   /// Construct a pack expansion type from the pattern of the pack
-  /// expansion.
-  QualType CheckPackExpansion(QualType Pattern,
-                              SourceRange PatternRange,
-                              SourceLocation EllipsisLoc,
-                              Optional<unsigned> NumExpansions);
+  /// declaration.
+  QualType CheckPackExpansionType(QualType Pattern,
+                                  SourceRange PatternRange,
+                                  SourceLocation EllipsisLoc,
+                                  Optional<unsigned> NumExpansions,
+                                  bool AllowHomogeneous);
 
   /// Invoked when parsing an expression followed by an ellipsis, which
   /// creates a pack expansion.
@@ -7860,6 +7858,7 @@ public:
 
   TypeSourceInfo *SubstFunctionDeclType(TypeSourceInfo *T,
                             const MultiLevelTemplateArgumentList &TemplateArgs,
+                                        Optional<unsigned> PackSize,
                                         SourceLocation Loc,
                                         DeclarationName Entity,
                                         CXXRecordDecl *ThisContext,
@@ -7878,6 +7877,7 @@ public:
   bool SubstParmTypes(SourceLocation Loc, ArrayRef<ParmVarDecl *> Params,
                       const FunctionProtoType::ExtParameterInfo *ExtParamInfos,
                       const MultiLevelTemplateArgumentList &TemplateArgs,
+                      Optional<unsigned> PackSize,
                       SmallVectorImpl<QualType> &ParamTypes,
                       SmallVectorImpl<ParmVarDecl *> *OutParams,
                       ExtParameterInfoBuilder &ParamInfos);
@@ -7909,7 +7909,8 @@ public:
                       const MultiLevelTemplateArgumentList &TemplateArgs);
 
   Decl *SubstDecl(Decl *D, DeclContext *Owner,
-                  const MultiLevelTemplateArgumentList &TemplateArgs);
+                  const MultiLevelTemplateArgumentList &TemplateArgs,
+                  unsigned PackSize = 0);
 
   ExprResult SubstInitializer(Expr *E,
                        const MultiLevelTemplateArgumentList &TemplateArgs,
@@ -7997,6 +7998,7 @@ public:
                                 FunctionDecl *Function);
   FunctionDecl *InstantiateFunctionDeclaration(FunctionTemplateDecl *FTD,
                                                const TemplateArgumentList *Args,
+                                               unsigned PackSize,
                                                SourceLocation Loc);
   void InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
                                      FunctionDecl *Function,

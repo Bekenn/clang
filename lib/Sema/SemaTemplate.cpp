@@ -1260,8 +1260,7 @@ NamedDecl *Sema::ActOnTemplateTemplateParameter(Scope* S,
 /// constrained by RequiresClause, that contains the template parameters in
 /// Params.
 TemplateParameterList *
-Sema::ActOnTemplateParameterList(unsigned Depth,
-                                 SourceLocation ExportLoc,
+Sema::ActOnTemplateParameterList(SourceLocation ExportLoc,
                                  SourceLocation TemplateLoc,
                                  SourceLocation LAngleLoc,
                                  ArrayRef<NamedDecl *> Params,
@@ -1929,8 +1928,9 @@ private:
                             OldParam->getLocation(), OldParam->getDeclName());
       if (!NewDI) return nullptr;
       NewDI =
-          SemaRef.CheckPackExpansion(NewDI, PackTL.getEllipsisLoc(),
-                                     PackTL.getTypePtr()->getNumExpansions());
+          SemaRef.CheckPackExpansionType(NewDI, PackTL.getEllipsisLoc(),
+                                         PackTL.getTypePtr()->getNumExpansions(),
+                                         /*AllowHomogeneous*/true);
     } else
       NewDI = SemaRef.SubstType(OldDI, Args, OldParam->getLocation(),
                                 OldParam->getDeclName());
@@ -8331,8 +8331,8 @@ bool Sema::CheckFunctionTemplateSpecialization(
   const TemplateArgumentList* TemplArgs = new (Context)
     TemplateArgumentList(Specialization->getTemplateSpecializationArgs());
   FD->setFunctionTemplateSpecialization(
-      Specialization->getPrimaryTemplate(), TemplArgs, /*InsertPos=*/nullptr,
-      SpecInfo->getTemplateSpecializationKind(),
+      Specialization->getPrimaryTemplate(), TemplArgs, SpecInfo->PackSize,
+      /*InsertPos=*/nullptr, SpecInfo->getTemplateSpecializationKind(),
       ExplicitTemplateArgs ? &ConvertedTemplateArgs[Specialization] : nullptr);
 
   // A function template specialization inherits the target attributes

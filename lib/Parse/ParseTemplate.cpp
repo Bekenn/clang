@@ -85,8 +85,6 @@ Decl *Parser::ParseTemplateDeclarationOrSpecialization(
   // defining A<T>::B receives just the inner template parameter list
   // (and retrieves the outer template parameter list from its
   // context).
-  bool isSpecialization = true;
-  bool LastParamListWasEmpty = false;
   TemplateParameterLists ParamLists;
   TemplateParameterDepthRAII CurTemplateDepthTracker(TemplateParameterDepth);
 
@@ -115,9 +113,7 @@ Decl *Parser::ParseTemplateDeclarationOrSpecialization(
 
     ExprResult OptionalRequiresClauseConstraintER;
     if (!TemplateParams.empty()) {
-      isSpecialization = false;
       ++CurTemplateDepthTracker;
-
       if (TryConsumeToken(tok::kw_requires)) {
         OptionalRequiresClauseConstraintER =
             Actions.CorrectDelayedTyposInExpr(ParseConstraintExpression());
@@ -128,22 +124,17 @@ Decl *Parser::ParseTemplateDeclarationOrSpecialization(
           return nullptr;
         }
       }
-    } else {
-      LastParamListWasEmpty = true;
     }
 
     ParamLists.push_back(Actions.ActOnTemplateParameterList(
-        CurTemplateDepthTracker.getDepth(), ExportLoc, TemplateLoc, LAngleLoc,
-        TemplateParams, RAngleLoc, OptionalRequiresClauseConstraintER.get()));
+        ExportLoc, TemplateLoc, LAngleLoc, TemplateParams, RAngleLoc,
+        OptionalRequiresClauseConstraintER.get()));
   } while (Tok.isOneOf(tok::kw_export, tok::kw_template));
-
-  unsigned NewFlags = getCurScope()->getFlags() & ~Scope::TemplateParamScope;
-  ParseScopeFlags TemplateScopeFlags(this, NewFlags, isSpecialization);
 
   // Parse the actual template declaration.
   return ParseSingleDeclarationAfterTemplate(
       Context,
-      ParsedTemplateInfo(&ParamLists, isSpecialization, LastParamListWasEmpty),
+      ParsedTemplateInfo(&ParamLists),
       ParsingTemplateParams, DeclEnd, AccessAttrs, AS);
 }
 
@@ -279,13 +270,11 @@ Decl *Parser::ParseSingleDeclarationAfterTemplate(
         // Recover as if it were an explicit specialization.
         TemplateParameterLists FakedParamLists;
         FakedParamLists.push_back(Actions.ActOnTemplateParameterList(
-            0, SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
+            SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
             LAngleLoc, nullptr));
 
         return ParseFunctionDefinition(
-            DeclaratorInfo, ParsedTemplateInfo(&FakedParamLists,
-                                               /*isSpecialization=*/true,
-                                               /*LastParamListWasEmpty=*/true),
+            DeclaratorInfo, ParsedTemplateInfo(&FakedParamLists),
             &LateParsedAttrs);
       }
     }
@@ -650,7 +639,7 @@ Parser::ParseTemplateTemplateParameter(unsigned Depth, unsigned Position) {
     DiagnoseMisplacedEllipsis(EllipsisLoc, NameLoc, AlreadyHasEllipsis, true);
 
   TemplateParameterList *ParamList =
-    Actions.ActOnTemplateParameterList(Depth, SourceLocation(),
+    Actions.ActOnTemplateParameterList(SourceLocation(),
                                        TemplateLoc, LAngleLoc,
                                        TemplateParams,
                                        RAngleLoc, nullptr);
@@ -1348,9 +1337,10 @@ Decl *Parser::ParseExplicitInstantiation(DeclaratorContext Context,
   ParsingDeclRAIIObject
     ParsingTemplateParams(*this, ParsingDeclRAIIObject::NoParent);
 
+  ParsedTemplateInfo TemplateInfo(ExternLoc, TemplateLoc);
   return ParseSingleDeclarationAfterTemplate(
-      Context, ParsedTemplateInfo(ExternLoc, TemplateLoc),
-      ParsingTemplateParams, DeclEnd, AccessAttrs, AS);
+      Context, TemplateInfo, ParsingTemplateParams, DeclEnd,
+      AccessAttrs, AS);
 }
 
 SourceRange Parser::ParsedTemplateInfo::getSourceRange() const {

@@ -1670,7 +1670,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
 
     void *InsertPos = nullptr;
     FunctionDecl *SpecFunc
-      = FunctionTemplate->findSpecialization(Innermost, InsertPos);
+      = FunctionTemplate->findSpecialization(Innermost, *PackSize, InsertPos);
 
     // If we already have a function template specialization, return it.
     if (SpecFunc)
@@ -1795,6 +1795,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
     Function->setFunctionTemplateSpecialization(FunctionTemplate,
                             TemplateArgumentList::CreateCopy(SemaRef.Context,
                                                              Innermost),
+                                                *PackSize,
                                                 /*InsertPos=*/nullptr);
   } else if (isFriend && D->isThisDeclarationADefinition()) {
     // Do not connect the friend to the template unless it's actually a
@@ -1963,7 +1964,7 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
 
     void *InsertPos = nullptr;
     FunctionDecl *SpecFunc
-      = FunctionTemplate->findSpecialization(Innermost, InsertPos);
+      = FunctionTemplate->findSpecialization(Innermost, *PackSize, InsertPos);
 
     // If we already have a function template specialization, return it.
     if (SpecFunc)
@@ -2094,6 +2095,7 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
     Method->setFunctionTemplateSpecialization(FunctionTemplate,
                          TemplateArgumentList::CreateCopy(SemaRef.Context,
                                                           Innermost),
+                                              *PackSize,
                                               /*InsertPos=*/nullptr);
   } else if (!isFriend) {
     // Record that this is an instantiation of a member function.
@@ -2372,8 +2374,8 @@ Decl *TemplateDeclInstantiator::VisitNonTypeTemplateParmDecl(
         return nullptr;
 
       SemaRef.CheckNonTypeTemplateParameterType(NewPattern, D->getLocation());
-      DI = SemaRef.CheckPackExpansion(NewPattern, Expansion.getEllipsisLoc(),
-                                      NumExpansions);
+      DI = SemaRef.CheckPackExpansionType(NewPattern, Expansion.getEllipsisLoc(),
+                                          NumExpansions, /*AllowHomogeneous*/false);
       if (!DI)
         return nullptr;
 
@@ -3350,8 +3352,9 @@ Decl *TemplateDeclInstantiator::VisitDecl(Decl *D) {
 }
 
 Decl *Sema::SubstDecl(Decl *D, DeclContext *Owner,
-                      const MultiLevelTemplateArgumentList &TemplateArgs) {
-  TemplateDeclInstantiator Instantiator(*this, Owner, TemplateArgs);
+                      const MultiLevelTemplateArgumentList &TemplateArgs,
+                      unsigned PackSize) {
+  TemplateDeclInstantiator Instantiator(*this, Owner, TemplateArgs, PackSize);
   if (D->isInvalidDecl())
     return nullptr;
 
@@ -3681,7 +3684,7 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
   }
 
   TypeSourceInfo *NewTInfo
-    = SemaRef.SubstFunctionDeclType(OldTInfo, TemplateArgs,
+    = SemaRef.SubstFunctionDeclType(OldTInfo, TemplateArgs, PackSize,
                                     D->getTypeSpecStartLoc(),
                                     D->getDeclName(),
                                     ThisContext, ThisTypeQuals);
@@ -3701,10 +3704,13 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
         LocalInstantiationScope *Scope = SemaRef.CurrentInstantiationScope;
 
         Optional<unsigned> NumArgumentsInExpansion;
-        if (OldParam->isParameterPack())
-          NumArgumentsInExpansion =
-              SemaRef.getNumArgumentsInExpansion(OldParam->getType(),
-                                                 TemplateArgs);
+        if (OldParam->isParameterPack()) {
+          auto pack = OldParam->getType()->getAs<PackExpansionType>();
+          NumArgumentsInExpansion = pack->getPattern()->containsUnexpandedParameterPack()
+            ? SemaRef.getNumArgumentsInExpansion(OldParam->getType(),
+                                                 TemplateArgs)
+            : PackSize;
+        }
         if (!NumArgumentsInExpansion) {
           // Simple case: normal parameter, or a parameter pack that's
           // instantiated to a (still-dependent) parameter pack.
@@ -3714,7 +3720,10 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
         } else {
           // Parameter pack expansion: make the instantiation an argument pack.
           Scope->MakeInstantiatedLocalArgPack(OldParam);
-          for (unsigned I = 0; I != *NumArgumentsInExpansion; ++I) {
+          unsigned PackSize = *NumArgumentsInExpansion;
+          if (!cast<PackExpansionType>(OldParam->getType())->getPattern()->containsUnexpandedParameterPack())
+            PackSize = NewProtoLoc.getNumParams() - NewIdx;
+          for (unsigned I = 0; I != PackSize; ++I) {
             ParmVarDecl *NewParam = NewProtoLoc.getParam(NewIdx++);
             Params.push_back(NewParam);
             Scope->InstantiatedLocalPackArg(OldParam, NewParam);
@@ -3757,7 +3766,7 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
     SmallVector<QualType, 4> ParamTypes;
     Sema::ExtParameterInfoBuilder ExtParamInfos;
     if (SemaRef.SubstParmTypes(D->getLocation(), D->parameters(), nullptr,
-                               TemplateArgs, ParamTypes, &Params,
+                               TemplateArgs, PackSize, ParamTypes, &Params,
                                ExtParamInfos))
       return nullptr;
   }
@@ -3771,7 +3780,8 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
 static bool addInstantiatedParametersToScope(Sema &S, FunctionDecl *Function,
                                              const FunctionDecl *PatternDecl,
                                              LocalInstantiationScope &Scope,
-                           const MultiLevelTemplateArgumentList &TemplateArgs) {
+                           const MultiLevelTemplateArgumentList &TemplateArgs,
+                                             unsigned PackSize) {
   unsigned FParamIdx = 0;
   for (unsigned I = 0, N = PatternDecl->getNumParams(); I != N; ++I) {
     const ParmVarDecl *PatternParam = PatternDecl->getParamDecl(I);
@@ -3802,11 +3812,13 @@ static bool addInstantiatedParametersToScope(Sema &S, FunctionDecl *Function,
 
     // Expand the parameter pack.
     Scope.MakeInstantiatedLocalArgPack(PatternParam);
+    QualType PatternType =
+        PatternParam->getType()->castAs<PackExpansionType>()->getPattern();
     Optional<unsigned> NumArgumentsInExpansion
-      = S.getNumArgumentsInExpansion(PatternParam->getType(), TemplateArgs);
+      = PatternType.getTypePtr()->containsUnexpandedParameterPack()
+        ? S.getNumArgumentsInExpansion(PatternParam->getType(), TemplateArgs)
+        : PackSize;
     if (NumArgumentsInExpansion) {
-      QualType PatternType =
-          PatternParam->getType()->castAs<PackExpansionType>()->getPattern();
       for (unsigned Arg = 0; Arg < *NumArgumentsInExpansion; ++Arg) {
         ParmVarDecl *FunctionParam = Function->getParamDecl(FParamIdx);
         FunctionParam->setDeclName(PatternParam->getDeclName());
@@ -3856,12 +3868,36 @@ void Sema::InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
   Sema::ContextRAII savedContext(*this, Decl);
   LocalInstantiationScope Scope(*this);
 
+  FunctionDecl *Template = Proto->getExceptionSpecTemplate();
   MultiLevelTemplateArgumentList TemplateArgs =
     getTemplateInstantiationArgs(Decl, nullptr, /*RelativeToPrimary*/true);
+  unsigned PackSize = 0;
+  switch (Decl->getTemplatedKind()) {
+    case FunctionDecl::TK_MemberSpecialization:
+      PackSize = 0;
+      break;
+    case FunctionDecl::TK_FunctionTemplateSpecialization:
+      PackSize = Decl->getTemplateSpecializationInfo()->PackSize;
+      break;
+    case FunctionDecl::TK_DependentFunctionTemplateSpecialization: {
+      DependentFunctionTemplateSpecializationInfo *Info =
+        Decl->getDependentSpecializationInfo();
+      SmallVector<TemplateArgument, 4> TemplateArgs;
+      for (unsigned I = 0; I < Info->getNumTemplateArgs(); ++I)
+        TemplateArgs.push_back(Info->getTemplateArg(I).getArgument());
+      MultiLevelTemplateArgumentList ArgList;
+      ArgList.addOuterTemplateArguments(TemplateArgs);
+      FunctionDecl *SubstitutedDecl = SubstDecl(Template, getCurLexicalContext(), ArgList)->getAsFunction();
+      const FunctionProtoType *SubstitutedProto = SubstitutedDecl->getType()->castAs<FunctionProtoType>();
+      PackSize = Proto->getNumParams() - SubstitutedProto->getNumParams();
+      break;
+    }
+    default:
+      break;
+  }
 
-  FunctionDecl *Template = Proto->getExceptionSpecTemplate();
   if (addInstantiatedParametersToScope(*this, Decl, Template, Scope,
-                                       TemplateArgs)) {
+                                       TemplateArgs, PackSize)) {
     UpdateExceptionSpec(Decl, EST_None);
     return;
   }
@@ -3988,6 +4024,7 @@ TemplateDeclInstantiator::InitMethodInstantiation(CXXMethodDecl *New,
 FunctionDecl *
 Sema::InstantiateFunctionDeclaration(FunctionTemplateDecl *FTD,
                                      const TemplateArgumentList *Args,
+                                     unsigned PackSize,
                                      SourceLocation Loc) {
   FunctionDecl *FD = FTD->getTemplatedDecl();
 
@@ -4001,7 +4038,7 @@ Sema::InstantiateFunctionDeclaration(FunctionTemplateDecl *FTD,
   ContextRAII SavedContext(*this, FD);
   MultiLevelTemplateArgumentList MArgs(*Args);
 
-  return cast_or_null<FunctionDecl>(SubstDecl(FD, FD->getParent(), MArgs));
+  return cast_or_null<FunctionDecl>(SubstDecl(FD, FD->getParent(), MArgs, PackSize));
 }
 
 /// In the MS ABI, we need to instantiate default arguments of dllexported
@@ -4191,6 +4228,8 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   else {
     MultiLevelTemplateArgumentList TemplateArgs =
       getTemplateInstantiationArgs(Function, nullptr, false, PatternDecl);
+    FunctionTemplateSpecializationInfo *Info = Function->getTemplateSpecializationInfo();
+    unsigned PackSize = Info ? Info->PackSize : 0;
 
     // Substitute into the qualifier; we can get a substitution failure here
     // through evil use of alias templates.
@@ -4205,7 +4244,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
     Sema::ContextRAII savedContext(*this, Function);
 
     if (addInstantiatedParametersToScope(*this, Function, PatternDecl, Scope,
-                                         TemplateArgs))
+                                         TemplateArgs, PackSize))
       return;
 
     StmtResult Body;

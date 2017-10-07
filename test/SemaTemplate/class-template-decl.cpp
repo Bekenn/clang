@@ -25,6 +25,8 @@ template<class U> class A; // expected-note{{previous template declaration is he
 
 template<int N> class A; // expected-error{{template parameter has a different kind in template redeclaration}}
 
+template<> class NoTemplateParm; // expected-error{{extraneous 'template<>' in declaration}}
+
 template<int N> class NonTypeTemplateParm;
 
 typedef int INT;

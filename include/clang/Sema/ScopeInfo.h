@@ -812,6 +812,9 @@ public:
   /// Whether the lambda contains an unexpanded parameter pack.
   bool ContainsUnexpandedParameterPack = false;
 
+  /// Whether the lambda contains a homogeneous parameter pack (e.g. int...).
+  bool ContainsHomogeneousParameterPack = false;
+
   /// If this is a generic lambda, use this as the depth of
   /// each 'auto' parameter, during initial AST construction.
   unsigned AutoTemplateParameterDepth = 0;
@@ -878,9 +881,9 @@ public:
   }
 
   /// Is this scope known to be for a generic lambda? (This will be false until
-  /// we parse the first 'auto'-typed parameter.
+  /// we parse the first 'auto'-typed parameter or a homogeneous parameter pack.)
   bool isGenericLambda() const {
-    return !AutoTemplateParams.empty() || GLTemplateParameterList;
+    return !AutoTemplateParams.empty() || ContainsHomogeneousParameterPack || GLTemplateParameterList;
   }
 
   /// Add a variable that might potentially be captured by the

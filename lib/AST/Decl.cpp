@@ -3494,6 +3494,7 @@ void
 FunctionDecl::setFunctionTemplateSpecialization(ASTContext &C,
                                                 FunctionTemplateDecl *Template,
                                      const TemplateArgumentList *TemplateArgs,
+                                                unsigned PackSize,
                                                 void *InsertPos,
                                                 TemplateSpecializationKind TSK,
                         const TemplateArgumentListInfo *TemplateArgsAsWritten,
@@ -3505,6 +3506,7 @@ FunctionDecl::setFunctionTemplateSpecialization(ASTContext &C,
   if (!Info)
     Info = FunctionTemplateSpecializationInfo::Create(C, this, Template, TSK,
                                                       TemplateArgs,
+                                                      PackSize,
                                                       TemplateArgsAsWritten,
                                                       PointOfInstantiation);
   TemplateOrSpecialization = Info;

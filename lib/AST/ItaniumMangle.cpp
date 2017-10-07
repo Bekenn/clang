@@ -545,7 +545,7 @@ private:
                           unsigned NumTemplateArgs);
   void mangleTemplateArgs(const TemplateArgument *TemplateArgs,
                           unsigned NumTemplateArgs);
-  void mangleTemplateArgs(const TemplateArgumentList &AL);
+  void mangleTemplateArgs(const TemplateArgumentList &AL, unsigned PackSize);
   void mangleTemplateArg(TemplateArgument A);
 
   void mangleTemplateParameter(unsigned Index);
@@ -782,11 +782,15 @@ static bool isStdNamespace(const DeclContext *DC) {
 }
 
 static const TemplateDecl *
-isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
+isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs,
+           unsigned &PackSize) {
   // Check if we have a function template.
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
     if (const TemplateDecl *TD = FD->getPrimaryTemplate()) {
-      TemplateArgs = FD->getTemplateSpecializationArgs();
+      FunctionTemplateSpecializationInfo *Info = FD->getTemplateSpecializationInfo();
+      assert(Info != nullptr);
+      TemplateArgs = Info->TemplateArguments;
+      PackSize = Info->PackSize;
       return TD;
     }
   }
@@ -795,6 +799,7 @@ isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
   if (const ClassTemplateSpecializationDecl *Spec =
         dyn_cast<ClassTemplateSpecializationDecl>(ND)) {
     TemplateArgs = &Spec->getTemplateArgs();
+    PackSize = 0;
     return Spec->getSpecializedTemplate();
   }
 
@@ -802,6 +807,7 @@ isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
   if (const VarTemplateSpecializationDecl *Spec =
           dyn_cast<VarTemplateSpecializationDecl>(ND)) {
     TemplateArgs = &Spec->getTemplateArgs();
+    PackSize = 0;
     return Spec->getSpecializedTemplate();
   }
 
@@ -880,9 +886,10 @@ void CXXNameMangler::mangleNameWithAbiTags(const NamedDecl *ND,
   if (DC->isTranslationUnit() || isStdNamespace(DC)) {
     // Check if we have a template.
     const TemplateArgumentList *TemplateArgs = nullptr;
-    if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs)) {
+    unsigned PackSize = 0;
+    if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs, PackSize)) {
       mangleUnscopedTemplateName(TD, AdditionalAbiTags);
-      mangleTemplateArgs(*TemplateArgs);
+      mangleTemplateArgs(*TemplateArgs, PackSize);
       return;
     }
 
@@ -1416,11 +1423,14 @@ void CXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
   case DeclarationName::CXXConstructorName: {
     const CXXRecordDecl *InheritedFrom = nullptr;
     const TemplateArgumentList *InheritedTemplateArgs = nullptr;
+    unsigned PackSize = 0;
     if (auto Inherited =
             cast<CXXConstructorDecl>(ND)->getInheritedConstructor()) {
       InheritedFrom = Inherited.getConstructor()->getParent();
-      InheritedTemplateArgs =
-          Inherited.getConstructor()->getTemplateSpecializationArgs();
+      if (FunctionTemplateSpecializationInfo *SpecInfo = Inherited.getConstructor()->getTemplateSpecializationInfo()) {
+        InheritedTemplateArgs = SpecInfo->TemplateArguments;
+        PackSize = SpecInfo->PackSize;
+      }
     }
 
     if (ND == Structor)
@@ -1435,7 +1445,7 @@ void CXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
     // FIXME: The template arguments are part of the enclosing prefix or
     // nested-name, but it's more convenient to mangle them here.
     if (InheritedTemplateArgs)
-      mangleTemplateArgs(*InheritedTemplateArgs);
+      mangleTemplateArgs(*InheritedTemplateArgs, PackSize);
 
     writeAbiTags(ND, AdditionalAbiTags);
     break;
@@ -1513,9 +1523,10 @@ void CXXNameMangler::mangleNestedName(const NamedDecl *ND,
 
   // Check if we have a template.
   const TemplateArgumentList *TemplateArgs = nullptr;
-  if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs)) {
+  unsigned PackSize = 0;
+  if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs, PackSize)) {
     mangleTemplatePrefix(TD, NoFunction);
-    mangleTemplateArgs(*TemplateArgs);
+    mangleTemplateArgs(*TemplateArgs, PackSize);
   }
   else {
     manglePrefix(DC, NoFunction);
@@ -1697,8 +1708,9 @@ void CXXNameMangler::mangleLambda(const CXXRecordDecl *Lambda) {
             = cast<NamedDecl>(Context)->getIdentifier()) {
         mangleSourceName(Name);
         const TemplateArgumentList *TemplateArgs = nullptr;
-        if (isTemplate(cast<NamedDecl>(Context), TemplateArgs))
-          mangleTemplateArgs(*TemplateArgs);
+        unsigned PackSize = 0;
+        if (isTemplate(cast<NamedDecl>(Context), TemplateArgs, PackSize))
+          mangleTemplateArgs(*TemplateArgs, PackSize);
         Out << 'M';
       }
     }
@@ -1781,9 +1793,10 @@ void CXXNameMangler::manglePrefix(const DeclContext *DC, bool NoFunction) {
 
   // Check if we have a template.
   const TemplateArgumentList *TemplateArgs = nullptr;
-  if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs)) {
+  unsigned PackSize = 0;
+  if (const TemplateDecl *TD = isTemplate(ND, TemplateArgs, PackSize)) {
     mangleTemplatePrefix(TD);
-    mangleTemplateArgs(*TemplateArgs);
+    mangleTemplateArgs(*TemplateArgs, PackSize);
   } else {
     manglePrefix(getEffectiveDeclContext(ND), NoFunction);
     mangleUnqualifiedName(ND, nullptr);
@@ -4409,11 +4422,15 @@ void CXXNameMangler::mangleTemplateArgs(const TemplateArgumentLoc *TemplateArgs,
   Out << 'E';
 }
 
-void CXXNameMangler::mangleTemplateArgs(const TemplateArgumentList &AL) {
-  // <template-args> ::= I <template-arg>+ E
+void CXXNameMangler::mangleTemplateArgs(const TemplateArgumentList &AL,
+                                        unsigned PackSize) {
+  // <template-args> ::= I <template-arg>+ [<homogeneous-pack-size>] E
+  // <homogeneous-pack-size> ::= DP <positive number>
   Out << 'I';
   for (unsigned i = 0, e = AL.size(); i != e; ++i)
     mangleTemplateArg(AL[i]);
+  if (PackSize != 0)
+    Out << "DP" << PackSize;
   Out << 'E';
 }
 

@@ -6471,7 +6471,7 @@ Sema::ActOnCastExpr(Scope *S, SourceLocation LParenLoc,
 
   if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments (C++ only).
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
   } else {
     // Make sure any TypoExprs have been dealt with.
     ExprResult Res = CorrectDelayedTyposInExpr(CastExpr);

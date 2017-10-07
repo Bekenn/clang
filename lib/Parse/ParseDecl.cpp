@@ -2215,12 +2215,22 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
     break;
 
-  case ParsedTemplateInfo::Template:
-  case ParsedTemplateInfo::ExplicitSpecialization: {
+  case ParsedTemplateInfo::Template: {
     ThisDecl = Actions.ActOnTemplateDeclarator(getCurScope(),
                                                *TemplateInfo.TemplateParams,
                                                D);
-    if (VarTemplateDecl *VT = dyn_cast_or_null<VarTemplateDecl>(ThisDecl))
+    if (VarDecl *VD = dyn_cast_or_null<VarDecl>(ThisDecl)) {
+      if (VD->getTemplateSpecializationKind() == TSK_ExplicitSpecialization &&
+          !isa<VarTemplatePartialSpecializationDecl>(VD)) {
+        if (auto scope = getCurScope()->getTemplateParamParent()) {
+          if (scope->decl_empty()) {
+            auto flags = scope->getFlags() & ~Scope::TemplateParamScope;
+            scope->setFlags(flags);
+          }
+        }
+      }
+    }
+    else if (VarTemplateDecl *VT = dyn_cast_or_null<VarTemplateDecl>(ThisDecl))
       // Re-direct this decl to refer to the templated decl so that we can
       // initialize it.
       ThisDecl = VT->getTemplatedDecl();
@@ -2256,7 +2266,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
         // Recover as if it were an explicit specialization.
         TemplateParameterLists FakedParamLists;
         FakedParamLists.push_back(Actions.ActOnTemplateParameterList(
-            0, SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
+            SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
             LAngleLoc, nullptr));
 
         ThisDecl =
@@ -4178,7 +4188,8 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
   // specifier.
   bool shouldDelayDiagsInTag =
     (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation ||
-     TemplateInfo.Kind == ParsedTemplateInfo::ExplicitSpecialization);
+     (TemplateInfo.Kind == ParsedTemplateInfo::Template &&
+      TemplateInfo.LastParameterListWasEmpty));
   SuppressAccessChecks diagsFromTag(*this, shouldDelayDiagsInTag);
 
   // Enum definitions should not be parsed in a trailing-return-type.
@@ -5866,7 +5877,6 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       BalancedDelimiterTracker T(*this, tok::l_paren);
       T.consumeOpen();
       ParseFunctionDeclarator(D, attrs, T, IsAmbiguous);
-      PrototypeScope.Exit();
     } else if (Tok.is(tok::l_square)) {
       ParseBracketDeclarator(D);
     } else {

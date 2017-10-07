@@ -2454,12 +2454,12 @@ public:
   /// This routine adjusts the given parameter type @p T to the actual
   /// parameter type used by semantic analysis (C99 6.7.5.3p[7,8],
   /// C++ [dcl.fct]p3). The adjusted parameter type is returned.
-  QualType getAdjustedParameterType(QualType T) const;
+  QualType getAdjustedParameterType(QualType T);
 
   /// Retrieve the parameter type as adjusted for use in the signature
   /// of a function, decaying array and function types and removing top-level
   /// cv-qualifiers.
-  QualType getSignatureParameterType(QualType T) const;
+  QualType getSignatureParameterType(QualType T);
 
   QualType getExceptionObjectType(QualType T) const;
 

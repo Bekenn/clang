@@ -509,10 +509,11 @@ class FunctionTemplateSpecializationInfo : public llvm::FoldingSetNode {
                                      FunctionTemplateDecl *Template,
                                      TemplateSpecializationKind TSK,
                                      const TemplateArgumentList *TemplateArgs,
+                                     unsigned PackSize,
                        const ASTTemplateArgumentListInfo *TemplateArgsAsWritten,
                                      SourceLocation POI)
       : Function(FD), Template(Template, TSK - 1),
-        TemplateArguments(TemplateArgs),
+        TemplateArguments(TemplateArgs), PackSize(PackSize),
         TemplateArgumentsAsWritten(TemplateArgsAsWritten),
         PointOfInstantiation(POI) {}
 
@@ -521,6 +522,7 @@ public:
   Create(ASTContext &C, FunctionDecl *FD, FunctionTemplateDecl *Template,
          TemplateSpecializationKind TSK,
          const TemplateArgumentList *TemplateArgs,
+         unsigned PackSize,
          const TemplateArgumentListInfo *TemplateArgsAsWritten,
          SourceLocation POI);
 
@@ -537,6 +539,9 @@ public:
   /// The template arguments used to produce the function template
   /// specialization from the function template.
   const TemplateArgumentList *TemplateArguments;
+
+  /// The number of elements in a deduced function parameter pack.
+  unsigned PackSize;
 
   /// The template arguments as written in the sources, if provided.
   const ASTTemplateArgumentListInfo *TemplateArgumentsAsWritten;
@@ -588,16 +593,17 @@ public:
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) {
-    Profile(ID, TemplateArguments->asArray(),
+    Profile(ID, TemplateArguments->asArray(), PackSize,
             Function->getASTContext());
   }
 
   static void
   Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
-          ASTContext &Context) {
+          unsigned PackSize, ASTContext &Context) {
     ID.AddInteger(TemplateArgs.size());
     for (const TemplateArgument &TemplateArg : TemplateArgs)
       TemplateArg.Profile(ID, Context);
+    ID.AddInteger(PackSize);
   }
 };
 
@@ -762,6 +768,9 @@ protected:
     static ArrayRef<TemplateArgument> getTemplateArgs(EntryType *D) {
       return D->getTemplateArgs().asArray();
     }
+    static unsigned getPackSize(EntryType *D) {
+      return 0;
+    }
   };
 
   template <typename EntryType, typename SETraits = SpecEntryTraits<EntryType>,
@@ -795,7 +804,7 @@ protected:
 
   template <class EntryType> typename SpecEntryTraits<EntryType>::DeclType*
   findSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
-                         ArrayRef<TemplateArgument> Args, void *&InsertPos);
+                         ArrayRef<TemplateArgument> Args, unsigned PackSize, void *&InsertPos);
 
   template <class Derived, class EntryType>
   void addSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
@@ -962,6 +971,9 @@ SpecEntryTraits<FunctionTemplateSpecializationInfo> {
   getTemplateArgs(FunctionTemplateSpecializationInfo *I) {
     return I->TemplateArguments->asArray();
   }
+  static unsigned getPackSize(FunctionTemplateSpecializationInfo *I) {
+    return I->PackSize;
+  }
 };
 
 /// Declaration of a template function.
@@ -1033,6 +1045,7 @@ public:
   /// Return the specialization with the provided arguments if it exists,
   /// otherwise return the insertion point.
   FunctionDecl *findSpecialization(ArrayRef<TemplateArgument> Args,
+                                   unsigned PackSize,
                                    void *&InsertPos);
 
   FunctionTemplateDecl *getCanonicalDecl() override {
@@ -1875,12 +1888,12 @@ public:
   SourceRange getSourceRange() const override LLVM_READONLY;
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    Profile(ID, TemplateArgs->asArray(), getASTContext());
+    Profile(ID, TemplateArgs->asArray(), 0, getASTContext());
   }
 
   static void
   Profile(llvm::FoldingSetNodeID &ID, ArrayRef<TemplateArgument> TemplateArgs,
-          ASTContext &Context) {
+          unsigned /*PackSize*/, ASTContext &Context) {
     ID.AddInteger(TemplateArgs.size());
     for (const TemplateArgument &TemplateArg : TemplateArgs)
       TemplateArg.Profile(ID, Context);
@@ -2708,11 +2721,12 @@ public:
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    Profile(ID, TemplateArgs->asArray(), getASTContext());
+    Profile(ID, TemplateArgs->asArray(), 0, getASTContext());
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID,
                       ArrayRef<TemplateArgument> TemplateArgs,
+                      unsigned /*PackSize*/,
                       ASTContext &Context) {
     ID.AddInteger(TemplateArgs.size());
     for (const TemplateArgument &TemplateArg : TemplateArgs)

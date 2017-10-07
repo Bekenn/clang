@@ -4358,7 +4358,7 @@ QualType ASTContext::getPackExpansionType(QualType Pattern,
   llvm::FoldingSetNodeID ID;
   PackExpansionType::Profile(ID, Pattern, NumExpansions);
 
-  assert(Pattern->containsUnexpandedParameterPack() &&
+  assert((getLangOpts().FunctionParameterPacks || Pattern->containsUnexpandedParameterPack()) &&
          "Pack expansions must expand one or more parameter packs");
   void *InsertPos = nullptr;
   PackExpansionType *T
@@ -4372,7 +4372,7 @@ QualType ASTContext::getPackExpansionType(QualType Pattern,
     // The canonical type might not contain an unexpanded parameter pack, if it
     // contains an alias template specialization which ignores one of its
     // parameters.
-    if (Canon->containsUnexpandedParameterPack()) {
+    if (!Pattern->containsUnexpandedParameterPack() || Canon->containsUnexpandedParameterPack()) {
       Canon = getPackExpansionType(Canon, NumExpansions);
 
       // Find the insert position again, in case we inserted an element into
@@ -5465,13 +5465,16 @@ const ArrayType *ASTContext::getAsArrayType(QualType T) const {
                                               VAT->getBracketsRange()));
 }
 
-QualType ASTContext::getAdjustedParameterType(QualType T) const {
+QualType ASTContext::getAdjustedParameterType(QualType T) {
+  const PackExpansionType* PackType = T->getAs<PackExpansionType>();
+  if (PackType && !PackType->getPattern()->containsUnexpandedParameterPack())
+    return getPackExpansionType(getAdjustedParameterType(PackType->getPattern()), PackType->getNumExpansions());
   if (T->isArrayType() || T->isFunctionType())
     return getDecayedType(T);
   return T;
 }
 
-QualType ASTContext::getSignatureParameterType(QualType T) const {
+QualType ASTContext::getSignatureParameterType(QualType T) {
   T = getVariableArrayDecayedType(T);
   T = getAdjustedParameterType(T);
   return T.getUnqualifiedType();

@@ -581,6 +581,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
 
     // Template arguments.
     Record.AddTemplateArgumentList(FTSInfo->TemplateArguments);
+    Record.push_back(FTSInfo->PackSize);
 
     // Template args as written.
     Record.push_back(FTSInfo->TemplateArgumentsAsWritten != nullptr);

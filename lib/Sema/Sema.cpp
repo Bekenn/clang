@@ -1753,11 +1753,13 @@ LambdaScopeInfo *Sema::getCurLambda(bool IgnoreNonLambdaCapturingScope) {
 
   return CurLSI;
 }
-// We have a generic lambda if we parsed auto parameters, or we have
-// an associated template parameter list.
+// We have a generic lambda if we parsed auto parameters or a
+// homogeneous parameter pack, or we have an associated template
+// parameter list.
 LambdaScopeInfo *Sema::getCurGenericLambda() {
   if (LambdaScopeInfo *LSI =  getCurLambda()) {
     return (LSI->AutoTemplateParams.size() ||
+                    LSI->ContainsHomogeneousParameterPack ||
                     LSI->GLTemplateParameterList) ? LSI : nullptr;
   }
   return nullptr;

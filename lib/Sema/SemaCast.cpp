@@ -245,7 +245,7 @@ Sema::ActOnCXXNamedCast(SourceLocation OpLoc, tok::TokenKind Kind,
 
   if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments (C++ only).
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
   }
 
   return BuildCXXNamedCast(OpLoc, Kind, TInfo, E,

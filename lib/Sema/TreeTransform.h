@@ -213,6 +213,8 @@ public:
     return E->isDefaultArgument();
   }
 
+  Optional<unsigned> getHomogeneousPackSize() { return None; }
+
   /// Determine whether we should expand a pack expansion with the
   /// given set of parameter packs into separate arguments by repeatedly
   /// transforming the pattern.
@@ -1130,9 +1132,10 @@ public:
   QualType RebuildPackExpansionType(QualType Pattern,
                                     SourceRange PatternRange,
                                     SourceLocation EllipsisLoc,
-                                    Optional<unsigned> NumExpansions) {
-    return getSema().CheckPackExpansion(Pattern, PatternRange, EllipsisLoc,
-                                        NumExpansions);
+                                    Optional<unsigned> NumExpansions,
+                                    bool AllowHomogeneous) {
+    return getSema().CheckPackExpansionType(Pattern, PatternRange, EllipsisLoc,
+                                            NumExpansions, AllowHomogeneous);
   }
 
   /// Build a new atomic type given its value type.
@@ -3207,9 +3210,10 @@ public:
 
     case TemplateArgument::Type:
       if (TypeSourceInfo *Expansion
-            = getSema().CheckPackExpansion(Pattern.getTypeSourceInfo(),
-                                           EllipsisLoc,
-                                           NumExpansions))
+            = getSema().CheckPackExpansionType(Pattern.getTypeSourceInfo(),
+                                               EllipsisLoc,
+                                               NumExpansions,
+                                               /*AllowHomogeneous*/false))
         return TemplateArgumentLoc(TemplateArgument(Expansion->getType()),
                                    Expansion);
       break;
@@ -5013,7 +5017,7 @@ ParmVarDecl *TreeTransform<Derived>::TransformFunctionTypeParam(
     Result = RebuildPackExpansionType(Result,
                                 OldExpansionTL.getPatternLoc().getSourceRange(),
                                       OldExpansionTL.getEllipsisLoc(),
-                                      NumExpansions);
+                                      NumExpansions, /*AllowHomogeneous*/true);
     if (Result.isNull())
       return nullptr;
 
@@ -5069,7 +5073,8 @@ bool TreeTransform<Derived>::TransformFunctionTypeParams(
         PackExpansionTypeLoc ExpansionTL = TL.castAs<PackExpansionTypeLoc>();
         TypeLoc Pattern = ExpansionTL.getPatternLoc();
         SemaRef.collectUnexpandedParameterPacks(Pattern, Unexpanded);
-        assert(Unexpanded.size() > 0 && "Could not find parameter packs!");
+        assert((SemaRef.getLangOpts().FunctionParameterPacks || Unexpanded.size() > 0)
+               && "Could not find parameter packs!");
 
         // Determine whether we should expand the parameter packs.
         bool ShouldExpand = false;
@@ -5077,16 +5082,21 @@ bool TreeTransform<Derived>::TransformFunctionTypeParams(
         Optional<unsigned> OrigNumExpansions =
             ExpansionTL.getTypePtr()->getNumExpansions();
         NumExpansions = OrigNumExpansions;
-        if (getDerived().TryExpandParameterPacks(ExpansionTL.getEllipsisLoc(),
-                                                 Pattern.getSourceRange(),
-                                                 Unexpanded,
-                                                 ShouldExpand,
-                                                 RetainExpansion,
-                                                 NumExpansions)) {
+        if (!Pattern.getType()->containsUnexpandedParameterPack()) {
+          assert(SemaRef.getLangOpts().FunctionParameterPacks && i == NumParams - 1
+                 && "Homogeneous packs must appear last!");
+          NumExpansions = getDerived().getHomogeneousPackSize();
+          ShouldExpand = true;
+        } else if (getDerived().TryExpandParameterPacks(ExpansionTL.getEllipsisLoc(),
+                                                        Pattern.getSourceRange(),
+                                                        Unexpanded,
+                                                        ShouldExpand,
+                                                        RetainExpansion,
+                                                        NumExpansions)) {
           return true;
         }
 
-        if (ShouldExpand) {
+        if (ShouldExpand && NumExpansions) {
           // Expand the function parameter pack into multiple, separate
           // parameters.
           getDerived().ExpandingFunctionParameterPack(OldParm);
@@ -6318,7 +6328,8 @@ QualType TreeTransform<Derived>::TransformPackExpansionType(TypeLocBuilder &TLB,
     Result = getDerived().RebuildPackExpansionType(Pattern,
                                            TL.getPatternLoc().getSourceRange(),
                                                    TL.getEllipsisLoc(),
-                                           TL.getTypePtr()->getNumExpansions());
+                                           TL.getTypePtr()->getNumExpansions(),
+                                                   /*AllowHomogeneous*/true);
     if (Result.isNull())
       return QualType();
   }
@@ -10743,7 +10754,8 @@ TreeTransform<Derived>::TransformTypeTraitExpr(TypeTraitExpr *E) {
       To = getDerived().RebuildPackExpansionType(To,
                                                  PatternTL.getSourceRange(),
                                                  ExpansionTL.getEllipsisLoc(),
-                                                 NumExpansions);
+                                                 NumExpansions,
+                                                 /*AllowHomogeneous*/false);
       if (To.isNull())
         return ExprError();
 
@@ -10768,7 +10780,8 @@ TreeTransform<Derived>::TransformTypeTraitExpr(TypeTraitExpr *E) {
         To = getDerived().RebuildPackExpansionType(To,
                                                    PatternTL.getSourceRange(),
                                                    ExpansionTL.getEllipsisLoc(),
-                                                   NumExpansions);
+                                                   NumExpansions,
+                                                   /*AllowHomogeneous*/false);
         if (To.isNull())
           return ExprError();
 
@@ -10797,7 +10810,8 @@ TreeTransform<Derived>::TransformTypeTraitExpr(TypeTraitExpr *E) {
     To = getDerived().RebuildPackExpansionType(To,
                                                PatternTL.getSourceRange(),
                                                ExpansionTL.getEllipsisLoc(),
-                                               NumExpansions);
+                                               NumExpansions,
+                                               /*AllowHomogeneous*/false);
     if (To.isNull())
       return ExprError();
 

@@ -4969,12 +4969,13 @@ public:
           assert(MD->isFunctionTemplateSpecialization() &&
                  "A generic lambda's static-invoker function must be a "
                  "template specialization");
-          const TemplateArgumentList *TAL = MD->getTemplateSpecializationArgs();
+          FunctionTemplateSpecializationInfo *SpecInfo = MD->getTemplateSpecializationInfo();
+          const TemplateArgumentList *TAL = SpecInfo->TemplateArguments;
           FunctionTemplateDecl *CallOpTemplate =
               LambdaCallOp->getDescribedFunctionTemplate();
           void *InsertPos = nullptr;
           FunctionDecl *CorrespondingCallOpSpecialization =
-              CallOpTemplate->findSpecialization(TAL->asArray(), InsertPos);
+              CallOpTemplate->findSpecialization(TAL->asArray(), SpecInfo->PackSize, InsertPos);
           assert(CorrespondingCallOpSpecialization &&
                  "We must always have a function call operator specialization "
                  "that corresponds to our static invoker specialization");

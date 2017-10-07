@@ -1340,14 +1340,13 @@ private:
   /// specifiers.
   struct ParsedTemplateInfo {
     ParsedTemplateInfo()
-      : Kind(NonTemplate), TemplateParams(nullptr), TemplateLoc() { }
+      : Kind(NonTemplate), TemplateParams(nullptr), TemplateLoc(),
+        LastParameterListWasEmpty(false) { }
 
-    ParsedTemplateInfo(TemplateParameterLists *TemplateParams,
-                       bool isSpecialization,
-                       bool lastParameterListWasEmpty = false)
-      : Kind(isSpecialization? ExplicitSpecialization : Template),
-        TemplateParams(TemplateParams),
-        LastParameterListWasEmpty(lastParameterListWasEmpty) { }
+    explicit ParsedTemplateInfo(TemplateParameterLists *TemplateParams)
+      : Kind(Template), TemplateParams(TemplateParams),
+        LastParameterListWasEmpty(TemplateParams && TemplateParams->size() &&
+                                  !(*TemplateParams)[TemplateParams->size() - 1]->size()) { }
 
     explicit ParsedTemplateInfo(SourceLocation ExternLoc,
                                 SourceLocation TemplateLoc)
@@ -1359,10 +1358,8 @@ private:
     enum {
       /// We are not parsing a template at all.
       NonTemplate = 0,
-      /// We are parsing a template declaration.
+      /// We are parsing a template declaration or explicit specialization.
       Template,
-      /// We are parsing an explicit specialization.
-      ExplicitSpecialization,
       /// We are parsing an explicit instantiation.
       ExplicitInstantiation
     } Kind;

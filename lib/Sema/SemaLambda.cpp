@@ -228,7 +228,7 @@ getGenericLambdaTemplateParameterList(LambdaScopeInfo *LSI, Sema &SemaRef) {
   if (LSI->GLTemplateParameterList)
     return LSI->GLTemplateParameterList;
 
-  if (!LSI->AutoTemplateParams.empty()) {
+  if (!LSI->AutoTemplateParams.empty() || LSI->ContainsHomogeneousParameterPack) {
     SourceRange IntroRange = LSI->IntroducerRange;
     SourceLocation LAngleLoc = IntroRange.getBegin();
     SourceLocation RAngleLoc = IntroRange.getEnd();

@@ -13847,7 +13847,7 @@ TypeResult Sema::ActOnOpenMPDeclareMapperVarDecl(Scope *S, Declarator &D) {
 
   if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments (C++ only).
-    CheckExtraCXXDefaultArguments(D);
+    CheckExtraCXXDefaultArgumentsAndPacks(D);
   }
 
   return CreateParsedType(T, TInfo);
