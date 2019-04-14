@@ -809,7 +809,7 @@ namespace dr577 { // dr577: yes
   void (*g)(V) = a;
   void (*h)(CV); // expected-error {{qualifiers}}
   template<typename T> void i(T); // expected-note 2{{requires 1 arg}}
-  template<typename T> void j(void (*)(T)); // expected-note 2{{argument may not have 'void' type}}
+  template<typename T> void j(void (*)(T)); // expected-note 2{{parameter may not have 'void' type}}
   void k() {
     a();
     c();

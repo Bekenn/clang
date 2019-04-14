@@ -3522,7 +3522,7 @@ def warn_ignored_objc_externally_retained : Warning<
   InGroup<IgnoredAttributes>;
 
 // Function Parameter Semantic Analysis.
-def err_param_with_void_type : Error<"argument may not have 'void' type">;
+def err_param_with_void_type : Error<"parameter may not have 'void' type">;
 def err_void_only_param : Error<
   "'void' must be the first and only parameter if specified">;
 def err_void_param_qualified : Error<

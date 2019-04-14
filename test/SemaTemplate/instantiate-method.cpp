@@ -2,10 +2,10 @@
 template<typename T>
 class X {
 public:
-  void f(T x); // expected-error{{argument may not have 'void' type}}
+  void f(T x); // expected-error{{parameter may not have 'void' type}}
   void g(T*);
 
-  static int h(T, T); // expected-error {{argument may not have 'void' type}}
+  static int h(T, T); // expected-error {{parameter may not have 'void' type}}
 };
 
 int identity(int x) { return x; }
