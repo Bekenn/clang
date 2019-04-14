@@ -225,7 +225,11 @@ Decl *Parser::ParseSingleDeclarationAfterTemplate(
   // Error parsing the declarator?
   if (!DeclaratorInfo.hasName()) {
     // If so, skip until the semi-colon or a }.
-    SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
+    SkipUntil(tok::l_brace, tok::r_brace, StopAtSemi | StopBeforeMatch);
+    if (Tok.is(tok::l_brace)) {
+      ConsumeBrace();
+      SkipUntil(tok::r_brace);
+    }
     if (Tok.is(tok::semi))
       ConsumeToken();
     return nullptr;
